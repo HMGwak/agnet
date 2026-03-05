@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +28,7 @@ def slugify(text: str) -> str:
 
 
 @router.post("", response_model=TaskResponse, status_code=201)
-async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
+async def create_task(body: TaskCreate, request: Request, db: AsyncSession = Depends(get_db)):
     repo = await db.get(Repo, body.repo_id)
     if not repo:
         raise HTTPException(status_code=404, detail="Repo not found")
@@ -39,6 +39,7 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
     task.branch_name = f"task/{task.id}/{slugify(body.title)}"
     await db.commit()
     await db.refresh(task)
+    await request.app.state.worker_pool.enqueue(task.id)
     return task
 
 
@@ -67,7 +68,7 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{task_id}/approve-plan", response_model=ApprovalResponse)
 async def approve_plan(
-    task_id: int, body: ApprovalRequest, db: AsyncSession = Depends(get_db)
+    task_id: int, body: ApprovalRequest, request: Request, db: AsyncSession = Depends(get_db)
 ):
     task = await db.get(Task, task_id)
     if not task:
@@ -85,17 +86,20 @@ async def approve_plan(
 
     if body.decision == "approved":
         task.status = TaskStatus.IMPLEMENTING
+        await db.commit()
+        await request.app.state.worker_pool.enqueue(task.id)
     elif body.decision == "rejected":
         task.status = TaskStatus.FAILED
+        task.error_message = f"Plan rejected: {body.comment}"
+        await db.commit()
 
-    await db.commit()
     await db.refresh(approval)
     return approval
 
 
 @router.post("/{task_id}/approve-merge", response_model=ApprovalResponse)
 async def approve_merge(
-    task_id: int, body: ApprovalRequest, db: AsyncSession = Depends(get_db)
+    task_id: int, body: ApprovalRequest, request: Request, db: AsyncSession = Depends(get_db)
 ):
     task = await db.get(Task, task_id)
     if not task:
@@ -113,10 +117,13 @@ async def approve_merge(
 
     if body.decision == "approved":
         task.status = TaskStatus.MERGING
+        await db.commit()
+        await request.app.state.worker_pool.enqueue(task.id)
     elif body.decision == "rejected":
         task.status = TaskStatus.FAILED
+        task.error_message = f"Merge rejected: {body.comment}"
+        await db.commit()
 
-    await db.commit()
     await db.refresh(approval)
     return approval
 

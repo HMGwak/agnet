@@ -12,9 +12,32 @@ from app.database import init_db
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    # Phase 6: worker pool start here
+
+    from app.api.websocket import ws_manager
+    from app.config import settings
+    from app.database import async_session
+    from app.services.codex_agent import CodexAgent
+    from app.services.git_manager import GitManager
+    from app.services.logger import TaskLogger
+    from app.services.orchestrator import Orchestrator
+    from app.services.worker import WorkerPool
+
+    git_mgr = GitManager(settings.WORKSPACES_DIR)
+    codex = CodexAgent(settings.CODEX_COMMAND)
+    task_logger = TaskLogger(settings.LOGS_DIR)
+    task_logger.set_ws_manager(ws_manager)
+
+    orchestrator = Orchestrator(git_mgr, codex, task_logger, ws_manager, async_session)
+    worker_pool = WorkerPool(orchestrator)
+    orchestrator.set_worker_pool(worker_pool)
+
+    app.state.worker_pool = worker_pool
+    app.state.orchestrator = orchestrator
+    app.state.task_logger = task_logger
+
+    await worker_pool.start(async_session)
     yield
-    # Phase 6: worker pool stop here
+    await worker_pool.stop()
 
 
 app = FastAPI(title="AI Dev Automation", lifespan=lifespan)
