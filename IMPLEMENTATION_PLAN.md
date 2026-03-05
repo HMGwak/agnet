@@ -468,9 +468,12 @@ class GitManager:
 
     async def create_worktree(self, repo_path: Path, branch_name: str, task_id: int) -> Path:
         """
-        1. repo_path에서 default branch 최신으로 pull (선택적, 로컬이므로 skip 가능)
-        2. workspace_path = self.workspaces_dir / f"task-{task_id}"
-        3. git -C {repo_path} worktree add -b {branch_name} {workspace_path}
+        1. workspace_path = self.workspaces_dir / f"task-{task_id}"
+        2. 브랜치가 이미 존재하는지 확인:
+           git -C {repo_path} branch --list {branch_name}
+        3a. 브랜치 없으면: git -C {repo_path} worktree add -b {branch_name} {workspace_path}
+        3b. 브랜치 있으면: git -C {repo_path} worktree add {workspace_path} {branch_name}
+           (크래시 복구 시 기존 브랜치 재사용)
         4. return workspace_path
         """
 
@@ -762,6 +765,11 @@ class Orchestrator:
         self.logger = task_logger
         self.ws = ws_manager
         self.session_factory = session_factory
+        self.worker_pool: "WorkerPool | None" = None  # start() 후 주입
+
+    def set_worker_pool(self, pool: "WorkerPool"):
+        """순환 참조 방지: lifespan에서 orchestrator/worker 생성 후 호출"""
+        self.worker_pool = pool
 
     async def _update_status(self, session, task, new_status: TaskStatus):
         old = task.status
@@ -922,8 +930,8 @@ class WorkerPool:
         self._session_factory = session_factory
 
         # 시작 시 비정상 상태 태스크 복구
+        git_mgr = self.orchestrator.git
         async with session_factory() as session:
-            # 실행 중이던 태스크를 PENDING으로 리셋 (서버 크래시 복구)
             stuck_statuses = [
                 TaskStatus.PREPARING_WORKSPACE, TaskStatus.PLANNING,
                 TaskStatus.IMPLEMENTING, TaskStatus.TESTING, TaskStatus.MERGING,
@@ -932,6 +940,18 @@ class WorkerPool:
                 select(Task).where(Task.status.in_(stuck_statuses))
             )
             for task in result.scalars():
+                # 기존 worktree/branch가 남아있으면 정리
+                if task.workspace_path:
+                    repo = await session.get(Repo, task.repo_id)
+                    try:
+                        await git_mgr.cleanup_worktree(
+                            Path(repo.path), Path(task.workspace_path)
+                        )
+                    except Exception:
+                        pass  # 이미 정리된 경우 무시
+                    task.workspace_path = None
+                    # branch_name은 유지 — create_worktree에서 브랜치가 이미
+                    # 존재하면 checkout, 없으면 -b로 새로 생성하도록 구현
                 task.status = TaskStatus.PENDING
                 task.retry_count = 0
             await session.commit()
@@ -992,13 +1012,14 @@ async def lifespan(app: FastAPI):
 
     orchestrator = Orchestrator(git_mgr, codex, task_logger, ws_manager, async_session)
     worker_pool = WorkerPool(orchestrator)
+    orchestrator.set_worker_pool(worker_pool)  # 순환 참조 주입
 
     # app.state에 저장해서 API에서 접근 가능
     app.state.worker_pool = worker_pool
     app.state.orchestrator = orchestrator
     app.state.task_logger = task_logger
 
-    await worker_pool.start()
+    await worker_pool.start(async_session)  # session_factory 전달
     yield
     await worker_pool.stop()
 ```
@@ -1012,12 +1033,15 @@ await request.app.state.worker_pool.enqueue(task.id)
 
 approve-plan에서 (approve-merge도 동일 패턴):
 ```python
-# API가 status 변경 + enqueue를 모두 수행
-task.status = TaskStatus.IMPLEMENTING  # (또는 MERGING)
-await session.commit()
-if decision == "approved":
+# decision에 따라 분기 — status 변경은 반드시 조건 안에서
+if request_body.decision == "approved":
+    task.status = TaskStatus.IMPLEMENTING  # (merge면 MERGING)
+    await session.commit()
     await request.app.state.worker_pool.enqueue(task.id)
-# rejected면 status=FAILED, enqueue 안 함
+else:  # rejected
+    task.status = TaskStatus.FAILED
+    task.error_message = f"Plan rejected: {request_body.comment}"
+    await session.commit()
 ```
 
 ### 검증
