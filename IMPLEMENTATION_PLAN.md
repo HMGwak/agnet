@@ -27,6 +27,7 @@ dependencies = [
     "fastapi[standard]>=0.115",
     "sqlalchemy[asyncio]>=2.0",
     "aiosqlite>=0.20",
+    "aiofiles>=24.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "httpx>=0.27",
@@ -61,17 +62,16 @@ npm install swr react-diff-viewer-continued lucide-react
 ```bash
 cd /home/planee/python/task_manager/repos
 mkdir sample-project && cd sample-project
-git init
+git init -b main
 echo '# Sample Project' > README.md
-mkdir src
-cat > src/main.py << 'EOF'
+cat > main.py << 'EOF'
 def hello():
     return "Hello, World!"
 
 if __name__ == "__main__":
     print(hello())
 EOF
-cat > src/test_main.py << 'EOF'
+cat > test_main.py << 'EOF'
 from main import hello
 
 def test_hello():
@@ -79,6 +79,9 @@ def test_hello():
 EOF
 git add -A && git commit -m "Initial commit"
 ```
+
+> **주의**: `git init -b main`으로 기본 브랜치를 `main`으로 명시.
+> 파일은 루트에 배치하여 `pytest`에서 import 문제 방지.
 
 ### 검증
 
@@ -395,16 +398,20 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 @router.post("/{task_id}/approve-plan", response_model=ApprovalResponse)
 # - task.status != AWAIT_PLAN_APPROVAL 이면 400 에러
 # - Approval 레코드 생성 (phase="plan")
-# - decision == "approved": task.status = IMPLEMENTING
-# - decision == "rejected": task.status = FAILED
-# - TODO: Phase 6에서 approved면 worker 재개
+# - decision == "approved":
+#     task.status = IMPLEMENTING
+#     await request.app.state.worker_pool.enqueue(task.id)  ← 워커 재개
+# - decision == "rejected":
+#     task.status = FAILED (enqueue 하지 않음)
 
 @router.post("/{task_id}/approve-merge", response_model=ApprovalResponse)
 # - task.status != AWAIT_MERGE_APPROVAL 이면 400 에러
 # - Approval 레코드 생성 (phase="merge")
-# - decision == "approved": task.status = MERGING
-# - decision == "rejected": task.status = FAILED
-# - TODO: Phase 6에서 approved면 worker 재개
+# - decision == "approved":
+#     task.status = MERGING
+#     await request.app.state.worker_pool.enqueue(task.id)  ← 워커 재개
+# - decision == "rejected":
+#     task.status = FAILED (enqueue 하지 않음)
 
 @router.post("/{task_id}/cancel")
 # - DONE, FAILED, CANCELLED 상태면 400
@@ -655,7 +662,7 @@ class TaskLogger:
             return await f.read()
 ```
 
-> **참고**: aiofiles 추가 필요 → `pyproject.toml`에 `"aiofiles>=24.0"` 추가
+> **참고**: `aiofiles`는 Phase 0의 `pyproject.toml`에 이미 포함되어 있음.
 
 ### 5-2. WebSocket Manager (`backend/app/api/websocket.py`)
 
@@ -765,17 +772,23 @@ class Orchestrator:
 
     async def process_task(self, task_id: int):
         """
-        메인 태스크 처리 루프. 각 단계를 순차 실행.
-        AWAIT_*_APPROVAL 상태에 도달하면 return (워커 해제).
-        승인 후 resume_task()가 다시 호출됨.
+        메인 태스크 처리 루프.
+
+        호출 시점에 따라 2가지 진입 경로가 있다:
+          A) 최초 생성: status=PENDING → PREPARING → PLANNING → AWAIT_PLAN_APPROVAL (return)
+          B) 승인 재개: status=IMPLEMENTING 또는 MERGING (API에서 status 변경 후 enqueue)
+
+        AWAIT_*_APPROVAL에 도달하면 return하여 워커를 해제한다.
         """
         async with self.session_factory() as session:
             task = await session.get(Task, task_id)
             repo = await session.get(Repo, task.repo_id)
 
             try:
-                # Step 1: PREPARING_WORKSPACE
+                # ── Phase A: 최초 실행 (PENDING → AWAIT_PLAN_APPROVAL) ──
+
                 if task.status == TaskStatus.PENDING:
+                    # Step 1: Worktree 생성
                     await self._update_status(session, task, TaskStatus.PREPARING_WORKSPACE)
                     workspace = await self.git.create_worktree(
                         Path(repo.path), task.branch_name, task.id
@@ -783,14 +796,12 @@ class Orchestrator:
                     task.workspace_path = str(workspace)
                     await session.commit()
 
-                # Step 2: PLANNING
-                if task.status == TaskStatus.PREPARING_WORKSPACE:
+                    # Step 2: Codex로 계획 생성
                     await self._update_status(session, task, TaskStatus.PLANNING)
                     log_cb = lambda line: self.logger.log(task.id, line)
                     exit_code, output = await self.codex.generate_plan(
                         Path(task.workspace_path), task.description, log_callback=log_cb
                     )
-                    # Run 레코드 생성
                     run = Run(task_id=task.id, phase="plan", exit_code=exit_code,
                               log_path=str(self.logger.get_log_path(task.id)))
                     session.add(run)
@@ -799,17 +810,13 @@ class Orchestrator:
                     task.plan_text = output
                     await session.commit()
 
-                # Step 3: AWAIT_PLAN_APPROVAL -> return, 사람 대기
-                if task.status == TaskStatus.PLANNING:
+                    # Step 3: 사람 대기
                     await self._update_status(session, task, TaskStatus.AWAIT_PLAN_APPROVAL)
-                    return  # ★ 워커 해제
+                    return  # ★ 워커 해제, API approve-plan 대기
 
-                # Step 4: IMPLEMENTING (승인 후 resume에서 진입)
-                if task.status in (TaskStatus.AWAIT_PLAN_APPROVAL, TaskStatus.IMPLEMENTING):
-                    if task.status == TaskStatus.AWAIT_PLAN_APPROVAL:
-                        # 이 경우는 resume에서 직접 호출된 것이 아니라면 skip
-                        return
-                    await self._update_status(session, task, TaskStatus.IMPLEMENTING)
+                # ── Phase B: 구현 (승인 후 재개, status=IMPLEMENTING) ──
+
+                if task.status == TaskStatus.IMPLEMENTING:
                     log_cb = lambda line: self.logger.log(task.id, line)
                     exit_code, output = await self.codex.implement_plan(
                         Path(task.workspace_path), task.plan_text,
@@ -821,28 +828,27 @@ class Orchestrator:
                     if exit_code != 0:
                         raise RuntimeError(f"Implementation failed: {output[-500:]}")
 
-                # Step 5: TESTING
-                if task.status == TaskStatus.IMPLEMENTING:
+                    # Step 5: 테스트 실행
                     await self._update_status(session, task, TaskStatus.TESTING)
-                    log_cb = lambda line: self.logger.log(task.id, line)
                     exit_code, output = await self.codex.run_tests(
                         Path(task.workspace_path), log_callback=log_cb
                     )
                     run = Run(task_id=task.id, phase="test", exit_code=exit_code,
                               log_path=str(self.logger.get_log_path(task.id)))
                     session.add(run)
+
                     # diff 생성
                     task.diff_text = await self.git.get_diff(
                         Path(task.workspace_path), repo.default_branch
                     )
                     await session.commit()
 
-                # Step 6: AWAIT_MERGE_APPROVAL -> return
-                if task.status == TaskStatus.TESTING:
+                    # Step 6: 머지 승인 대기
                     await self._update_status(session, task, TaskStatus.AWAIT_MERGE_APPROVAL)
-                    return  # ★ 워커 해제
+                    return  # ★ 워커 해제, API approve-merge 대기
 
-                # Step 7: MERGING (승인 후 resume에서 진입)
+                # ── Phase C: 머지 (승인 후 재개, status=MERGING) ──
+
                 if task.status == TaskStatus.MERGING:
                     await self.logger.log(task.id, "Merging to main...")
                     success, msg = await self.git.merge_to_main(
@@ -864,27 +870,32 @@ class Orchestrator:
                     task.retry_count += 1
                     task.status = TaskStatus.PENDING
                     await session.commit()
-                    # worker에 재큐잉 (worker.enqueue 호출)
+                    await self.worker_pool.enqueue(task.id)  # 재큐잉
                 else:
                     await self._update_status(session, task, TaskStatus.FAILED)
-
-    async def resume_after_approval(self, task_id: int, phase: str):
-        """승인 후 호출. 해당 단계부터 process_task 재개."""
-        async with self.session_factory() as session:
-            task = await session.get(Task, task_id)
-            if phase == "plan" and task.status == TaskStatus.IMPLEMENTING:
-                # Approved -> IMPLEMENTING 상태로 변경됨 (API에서)
-                pass
-            elif phase == "merge" and task.status == TaskStatus.MERGING:
-                pass
-        # worker에 enqueue
 ```
 
-**주의**: 위 코드는 의사코드에 가까움. 실제 구현 시 status 체크 로직을 좀 더 단순하게 정리할 것. 핵심은:
-- PENDING → ... → AWAIT_PLAN_APPROVAL에서 return (워커 해제)
-- 승인 후 API가 status를 IMPLEMENTING으로 변경하고 resume
-- IMPLEMENTING → ... → AWAIT_MERGE_APPROVAL에서 return
-- 승인 후 API가 status를 MERGING으로 변경하고 resume
+**process_task 호출 흐름 요약:**
+
+```
+[최초 생성]
+  POST /api/tasks → status=PENDING → worker.enqueue(task_id)
+  → process_task(): PENDING → PREPARING → PLANNING → AWAIT_PLAN_APPROVAL (return)
+
+[계획 승인]
+  POST /api/tasks/{id}/approve-plan → status=IMPLEMENTING → worker.enqueue(task_id)
+  → process_task(): IMPLEMENTING → TESTING → AWAIT_MERGE_APPROVAL (return)
+
+[머지 승인]
+  POST /api/tasks/{id}/approve-merge → status=MERGING → worker.enqueue(task_id)
+  → process_task(): MERGING → DONE
+
+[거절 시]
+  API에서 status=FAILED로 변경, enqueue 하지 않음
+```
+
+> 핵심: API가 status를 변경하고 enqueue → process_task()는 현재 status에 맞는 if 분기만 실행.
+> `resume_after_approval()` 별도 메서드 불필요 — API에서 직접 status 변경 + enqueue.
 
 ### 6-2. Worker Pool (`backend/app/services/worker.py`)
 
@@ -906,13 +917,34 @@ class WorkerPool:
     async def enqueue(self, task_id: int):
         await self.queue.put(task_id)
 
-    async def start(self):
+    async def start(self, session_factory):
         self._running = True
+        self._session_factory = session_factory
+
         # 시작 시 비정상 상태 태스크 복구
-        # PREPARING_WORKSPACE, PLANNING, IMPLEMENTING, TESTING, MERGING -> PENDING으로 리셋
-        # PENDING 태스크들 큐에 추가
+        async with session_factory() as session:
+            # 실행 중이던 태스크를 PENDING으로 리셋 (서버 크래시 복구)
+            stuck_statuses = [
+                TaskStatus.PREPARING_WORKSPACE, TaskStatus.PLANNING,
+                TaskStatus.IMPLEMENTING, TaskStatus.TESTING, TaskStatus.MERGING,
+            ]
+            result = await session.execute(
+                select(Task).where(Task.status.in_(stuck_statuses))
+            )
+            for task in result.scalars():
+                task.status = TaskStatus.PENDING
+                task.retry_count = 0
+            await session.commit()
+
+            # PENDING 태스크들 큐에 추가
+            result = await session.execute(
+                select(Task).where(Task.status == TaskStatus.PENDING)
+            )
+            for task in result.scalars():
+                await self.queue.put(task.id)
+
+        # Worker 루프 시작 (semaphore=6이 실제 동시 실행 제한)
         self._workers = [asyncio.create_task(self._worker_loop()) for _ in range(12)]
-        # 12개의 루프를 돌리지만 semaphore가 6개로 제한
 
     async def stop(self):
         self._running = False
@@ -978,10 +1010,14 @@ async def lifespan(app: FastAPI):
 await request.app.state.worker_pool.enqueue(task.id)
 ```
 
-approve-plan/approve-merge에서:
+approve-plan에서 (approve-merge도 동일 패턴):
 ```python
+# API가 status 변경 + enqueue를 모두 수행
+task.status = TaskStatus.IMPLEMENTING  # (또는 MERGING)
+await session.commit()
 if decision == "approved":
     await request.app.state.worker_pool.enqueue(task.id)
+# rejected면 status=FAILED, enqueue 안 함
 ```
 
 ### 검증
@@ -1115,15 +1151,30 @@ export function useWebSocket(
     };
 
     ws.onclose = () => {
-      // 3초 후 재연결 (간단한 구현)
-      setTimeout(() => { /* reconnect logic */ }, 3000);
+      // 3초 후 재연결
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      reconnectRef.current = setTimeout(() => {
+        // useEffect cleanup이 호출되지 않은 상태면 재연결
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+          // re-trigger effect by updating a state or calling connect()
+          connect();
+        }
+      }, 3000);
     };
 
-    return () => ws.close();
+    return () => {
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      ws.close();
+    };
   }, [taskId]);
 
   return wsRef;
 }
+
+// 참고: 실제 구현 시 connect()를 useCallback으로 분리하고,
+// reconnectRef = useRef<ReturnType<typeof setTimeout>>()로 관리.
+// 위 코드는 패턴 설명용이며, 구현 시 상태 기반 reconnect로 작성할 것.
 ```
 
 ### 7-4. SWR 훅 (`dashboard/src/hooks/useTasks.ts`)
