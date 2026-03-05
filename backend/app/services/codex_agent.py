@@ -6,12 +6,23 @@ from pathlib import Path
 class CodexAgent:
     def __init__(self, codex_command: str = "codex"):
         self.codex_command = codex_command
+        self._processes: dict[int, asyncio.subprocess.Process] = {}  # task_id -> proc
+
+    async def cancel(self, task_id: int):
+        proc = self._processes.pop(task_id, None)
+        if proc and proc.returncode is None:
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                proc.kill()
 
     async def run_codex(
         self,
         prompt: str,
         cwd: Path,
         log_callback: Callable[[str], Awaitable[None]] | None = None,
+        task_id: int | None = None,
     ) -> tuple[int, str]:
         proc = await asyncio.create_subprocess_exec(
             self.codex_command, "--quiet", "--full-auto", "-p", prompt,
@@ -19,6 +30,8 @@ class CodexAgent:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
+        if task_id is not None:
+            self._processes[task_id] = proc
 
         lines: list[str] = []
         assert proc.stdout is not None
@@ -29,6 +42,7 @@ class CodexAgent:
                 await log_callback(line)
 
         await proc.wait()
+        self._processes.pop(task_id, None)
         return proc.returncode or 0, "\n".join(lines)
 
     async def generate_plan(

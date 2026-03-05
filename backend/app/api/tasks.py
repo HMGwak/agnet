@@ -129,7 +129,7 @@ async def approve_merge(
 
 
 @router.post("/{task_id}/cancel", response_model=TaskResponse)
-async def cancel_task(task_id: int, db: AsyncSession = Depends(get_db)):
+async def cancel_task(task_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -140,6 +140,8 @@ async def cancel_task(task_id: int, db: AsyncSession = Depends(get_db)):
     task.status = TaskStatus.CANCELLED
     await db.commit()
     await db.refresh(task)
+    codex = request.app.state.orchestrator.codex
+    await codex.cancel(task_id)
     return task
 
 

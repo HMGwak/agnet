@@ -57,7 +57,8 @@ class Orchestrator:
                     await self._update_status(session, task, TaskStatus.PLANNING)
                     log_cb = lambda line: self.logger.log(task.id, line)  # noqa: E731
                     exit_code, output = await self.codex.generate_plan(
-                        Path(task.workspace_path), task.description, log_callback=log_cb
+                        Path(task.workspace_path), task.description,
+                        log_callback=log_cb, task_id=task.id,
                     )
                     run = Run(
                         task_id=task.id, phase="plan", exit_code=exit_code,
@@ -77,7 +78,7 @@ class Orchestrator:
                     log_cb = lambda line: self.logger.log(task.id, line)  # noqa: E731
                     exit_code, output = await self.codex.implement_plan(
                         Path(task.workspace_path), task.plan_text,
-                        task.description, log_callback=log_cb,
+                        task.description, log_callback=log_cb, task_id=task.id,
                     )
                     run = Run(
                         task_id=task.id, phase="implement", exit_code=exit_code,
@@ -89,7 +90,7 @@ class Orchestrator:
 
                     await self._update_status(session, task, TaskStatus.TESTING)
                     exit_code, output = await self.codex.run_tests(
-                        Path(task.workspace_path), log_callback=log_cb
+                        Path(task.workspace_path), log_callback=log_cb, task_id=task.id,
                     )
                     run = Run(
                         task_id=task.id, phase="test", exit_code=exit_code,
