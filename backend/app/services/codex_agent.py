@@ -1,4 +1,7 @@
 import asyncio
+import os
+import shlex
+import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -7,6 +10,37 @@ class CodexAgent:
     def __init__(self, codex_command: str = "codex"):
         self.codex_command = codex_command
         self._processes: dict[int, asyncio.subprocess.Process] = {}  # task_id -> proc
+
+    def _resolve_command(self) -> list[str]:
+        parts = shlex.split(self.codex_command, posix=os.name != "nt")
+        if not parts:
+            raise RuntimeError("CODEX_COMMAND is empty")
+
+        executable = parts[0]
+        resolved = None
+        suffix = Path(executable).suffix.lower()
+
+        if os.name == "nt" and not suffix:
+            for ext in (".cmd", ".exe", ".bat", ".ps1"):
+                resolved = shutil.which(executable + ext)
+                if resolved:
+                    break
+
+        if not resolved:
+            resolved = shutil.which(executable) or executable
+
+        if Path(resolved).suffix.lower() == ".ps1":
+            return [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                resolved,
+                *parts[1:],
+            ]
+
+        return [resolved, *parts[1:]]
 
     async def cancel(self, task_id: int):
         proc = self._processes.pop(task_id, None)
@@ -24,8 +58,9 @@ class CodexAgent:
         log_callback: Callable[[str], Awaitable[None]] | None = None,
         task_id: int | None = None,
     ) -> tuple[int, str]:
+        command = self._resolve_command()
         proc = await asyncio.create_subprocess_exec(
-            self.codex_command, "--quiet", "--full-auto", "-p", prompt,
+            *command, "--quiet", "--full-auto", "-p", prompt,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

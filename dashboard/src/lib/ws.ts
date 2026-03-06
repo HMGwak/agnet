@@ -1,4 +1,4 @@
-const WS_BASE = "ws://localhost:8000/ws";
+const WS_BASE = "ws://localhost:8001/ws";
 
 export function getWSUrl(taskId?: number): string {
   if (taskId) return `${WS_BASE}?task_id=${taskId}`;

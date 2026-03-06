@@ -73,3 +73,16 @@ async def test_cleanup_worktree(temp_repo, tmp_path):
     assert ws.exists()
     await gm.cleanup_worktree(temp_repo, ws)
     assert not ws.exists()
+
+
+@pytest.mark.asyncio
+async def test_create_worktree_cleans_existing_workspace_dir(temp_repo, tmp_path):
+    gm = GitManager(tmp_path / "workspaces")
+    stale_workspace = tmp_path / "workspaces" / "task-6"
+    stale_workspace.mkdir(parents=True)
+    (stale_workspace / "stale.txt").write_text("stale")
+
+    ws = await gm.create_worktree(temp_repo, "task/6/recreated", 6)
+
+    assert ws.exists()
+    assert not (ws / "stale.txt").exists()

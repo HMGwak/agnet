@@ -2,7 +2,19 @@
 
 import { useState } from "react";
 import { useRepos } from "@/hooks/useTasks";
-import { createRepo } from "@/lib/api";
+import { createRepo, pickRepoPath } from "@/lib/api";
+
+function normalizeRepoPath(value: string): string {
+  let cleaned = value.trim();
+  while (
+    cleaned.length >= 2 &&
+    cleaned[0] === cleaned[cleaned.length - 1] &&
+    (cleaned[0] === '"' || cleaned[0] === "'")
+  ) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned;
+}
 
 export default function ReposPage() {
   const { data: repos, mutate, isLoading } = useRepos();
@@ -11,13 +23,35 @@ export default function ReposPage() {
   const [defaultBranch, setDefaultBranch] = useState("main");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+
+  async function handleBrowse() {
+    setError("");
+    setBrowsing(true);
+    try {
+      const result = await pickRepoPath();
+      if (result.path) {
+        setPath(result.path);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open folder picker");
+    } finally {
+      setBrowsing(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setSubmitting(true);
     try {
-      await createRepo({ name, path, default_branch: defaultBranch });
+      const normalizedPath = normalizeRepoPath(path);
+      setPath(normalizedPath);
+      await createRepo({
+        name: name.trim(),
+        path: normalizedPath,
+        default_branch: defaultBranch.trim() || "main",
+      });
       setName("");
       setPath("");
       setDefaultBranch("main");
@@ -52,14 +86,30 @@ export default function ReposPage() {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Path (server local)</label>
-          <input
-            type="text"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            required
-            placeholder="/home/user/projects/my-project"
-            className="w-full border rounded px-3 py-2 text-sm font-mono"
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              onBlur={() => setPath((current) => normalizeRepoPath(current))}
+              required
+              placeholder="D:\\Python\\agent\\dashboard"
+              className="flex-1 border rounded px-3 py-2 text-sm font-mono"
+            />
+            <button
+              type="button"
+              onClick={handleBrowse}
+              disabled={browsing || submitting}
+              className="border rounded px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {browsing ? "Opening..." : "Browse..."}
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            Pasted paths like{" "}
+            <span className="font-mono">{'"D:\\Python\\agent\\dashboard"'}</span>
+            {" "}are accepted.
+          </p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Default Branch</label>

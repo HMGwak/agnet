@@ -25,6 +25,10 @@ export interface RepoCreate {
   default_branch?: string;
 }
 
+export interface RepoPathPickResponse {
+  path: string | null;
+}
+
 export interface Task {
   id: number;
   repo_id: number;

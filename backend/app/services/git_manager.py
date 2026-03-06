@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import shutil
 from pathlib import Path
 
@@ -20,6 +21,9 @@ class GitManager:
 
     async def create_worktree(self, repo_path: Path, branch_name: str, task_id: int) -> Path:
         workspace_path = self.workspaces_dir / f"task-{task_id}"
+
+        if workspace_path.exists():
+            await self.cleanup_worktree(repo_path, workspace_path)
 
         # Check if branch already exists
         rc, out, _ = await self._run_git(
@@ -66,5 +70,7 @@ class GitManager:
         await self._run_git(
             "-C", str(repo_path), "worktree", "remove", str(workspace_path), "--force"
         )
+        await self._run_git("-C", str(repo_path), "worktree", "prune")
         if workspace_path.exists():
-            shutil.rmtree(workspace_path)
+            with contextlib.suppress(FileNotFoundError):
+                shutil.rmtree(workspace_path)

@@ -1,8 +1,15 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.models import TaskStatus
+
+
+def normalize_repo_path(value: str) -> str:
+    cleaned = value.strip()
+    while len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}:
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
 
 
 # --- Repo ---
@@ -10,6 +17,18 @@ class RepoCreate(BaseModel):
     name: str
     path: str
     default_branch: str = "main"
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        cleaned = normalize_repo_path(value)
+        if not cleaned:
+            raise ValueError("Path cannot be empty")
+        return cleaned
+
+
+class RepoPathPickResponse(BaseModel):
+    path: str | None
 
 
 class RepoResponse(BaseModel):
