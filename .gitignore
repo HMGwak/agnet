@@ -1,10 +1,42 @@
+# Python
 __pycache__/
 *.pyc
-.venv/
+*.pyo
 *.egg-info/
-database/*.db
-logs/*.log
-workspaces/
+.venv/
+dist/
+build/
+
+# Node
 node_modules/
 .next/
+
+# Runtime data
+database/*.db
+!database/.gitkeep
+logs/*.log
+!logs/.gitkeep
+workspaces/*
+!workspaces/.gitkeep
+
+# Environment
 .env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude / internal tools
+.claude/
+.omx/
+
+# Test repos (local only)
+repos/*
+!repos/.gitkeep
