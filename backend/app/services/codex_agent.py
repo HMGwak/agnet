@@ -42,6 +42,16 @@ class CodexAgent:
 
         return [resolved, *parts[1:]]
 
+    def _build_exec_command(self, prompt: str) -> list[str]:
+        return [
+            *self._resolve_command(),
+            "exec",
+            "--full-auto",
+            "--color",
+            "never",
+            prompt,
+        ]
+
     async def cancel(self, task_id: int):
         proc = self._processes.pop(task_id, None)
         if proc and proc.returncode is None:
@@ -58,9 +68,9 @@ class CodexAgent:
         log_callback: Callable[[str], Awaitable[None]] | None = None,
         task_id: int | None = None,
     ) -> tuple[int, str]:
-        command = self._resolve_command()
+        command = self._build_exec_command(prompt)
         proc = await asyncio.create_subprocess_exec(
-            *command, "--quiet", "--full-auto", "-p", prompt,
+            *command,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

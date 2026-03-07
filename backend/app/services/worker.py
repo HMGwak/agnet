@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,8 +19,10 @@ class WorkerPool:
         self.semaphore = asyncio.Semaphore(max_concurrent)
         self.repo_locks: dict[int, asyncio.Lock] = {}
         self.queue: asyncio.Queue[int] = asyncio.Queue()
+        self.queued_task_ids: set[int] = set()
         self._running = False
         self._workers: list[asyncio.Task] = []
+        self._scheduler: asyncio.Task | None = None
         self._session_factory = None
 
     def get_repo_lock(self, repo_id: int) -> asyncio.Lock:
@@ -28,7 +31,26 @@ class WorkerPool:
         return self.repo_locks[repo_id]
 
     async def enqueue(self, task_id: int):
+        if task_id in self.queued_task_ids:
+            return
+        self.queued_task_ids.add(task_id)
         await self.queue.put(task_id)
+
+    async def _is_task_ready(self, session, task: Task) -> bool:
+        if task.status != TaskStatus.PENDING:
+            return True
+
+        now = datetime.now()
+        if task.scheduled_for and task.scheduled_for > now:
+            return False
+
+        if task.blocked_by_task_id:
+            dependency = await session.get(Task, task.blocked_by_task_id)
+            if not dependency:
+                return False
+            return dependency.status == TaskStatus.DONE
+
+        return True
 
     async def start(self, session_factory):
         self._running = True
@@ -64,26 +86,47 @@ class WorkerPool:
                 select(Task).where(Task.status == TaskStatus.PENDING)
             )
             for task in result.scalars():
-                await self.queue.put(task.id)
+                if await self._is_task_ready(session, task):
+                    await self.enqueue(task.id)
 
         self._workers = [
             asyncio.create_task(self._worker_loop()) for _ in range(12)
         ]
+        self._scheduler = asyncio.create_task(self._scheduler_loop())
 
     async def stop(self):
         self._running = False
         for w in self._workers:
             w.cancel()
+        if self._scheduler:
+            self._scheduler.cancel()
+
+    async def _scheduler_loop(self):
+        while self._running:
+            await asyncio.sleep(5)
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(Task).where(Task.status == TaskStatus.PENDING)
+                )
+                for task in result.scalars():
+                    if await self._is_task_ready(session, task):
+                        await self.enqueue(task.id)
 
     async def _worker_loop(self):
         while self._running:
             task_id = await self.queue.get()
+            self.queued_task_ids.discard(task_id)
             async with self.semaphore:
                 async with self._session_factory() as session:
                     task = await session.get(Task, task_id)
                     if not task or task.status in (
-                        TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.CANCELLED
+                        TaskStatus.DONE,
+                        TaskStatus.FAILED,
+                        TaskStatus.NEEDS_ATTENTION,
+                        TaskStatus.CANCELLED,
                     ):
+                        continue
+                    if not await self._is_task_ready(session, task):
                         continue
                     repo_id = task.repo_id
 

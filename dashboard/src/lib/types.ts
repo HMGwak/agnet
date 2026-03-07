@@ -7,6 +7,7 @@ export type TaskStatus =
   | "TESTING"
   | "AWAIT_MERGE_APPROVAL"
   | "MERGING"
+  | "NEEDS_ATTENTION"
   | "DONE"
   | "FAILED"
   | "CANCELLED";
@@ -34,6 +35,9 @@ export interface Task {
   repo_id: number;
   title: string;
   description: string;
+  scheduled_for: string | null;
+  blocked_by_task_id: number | null;
+  blocked_by_title: string | null;
   status: TaskStatus;
   branch_name: string | null;
   workspace_path: string | null;
@@ -49,6 +53,9 @@ export interface TaskSummary {
   id: number;
   repo_id: number;
   title: string;
+  scheduled_for: string | null;
+  blocked_by_task_id: number | null;
+  blocked_by_title: string | null;
   status: TaskStatus;
   created_at: string;
   updated_at: string;
@@ -58,6 +65,12 @@ export interface TaskCreate {
   repo_id: number;
   title: string;
   description?: string;
+  scheduled_for?: string;
+  blocked_by_task_id?: number;
+}
+
+export interface TaskResumeReq {
+  comment?: string;
 }
 
 export interface ApprovalReq {

@@ -15,3 +15,18 @@ def test_resolve_command_prefers_windows_launcher(monkeypatch):
     monkeypatch.setattr("app.services.codex_agent.os.name", "nt")
 
     assert agent._resolve_command() == [r"C:\Users\plane\AppData\Roaming\npm\codex.cmd"]
+
+
+def test_build_exec_command_uses_exec_mode(monkeypatch):
+    agent = CodexAgent("codex")
+
+    monkeypatch.setattr(agent, "_resolve_command", lambda: ["codex.cmd"])
+
+    assert agent._build_exec_command("hello") == [
+        "codex.cmd",
+        "exec",
+        "--full-auto",
+        "--color",
+        "never",
+        "hello",
+    ]

@@ -38,6 +38,13 @@ class WebSocketManager:
             "data": {"old_status": old_status, "new_status": new_status},
         })
 
+    async def broadcast_task_deleted(self, task_id: int):
+        await self.broadcast(task_id, {
+            "type": "task_deleted",
+            "task_id": task_id,
+            "data": {},
+        })
+
 
 ws_manager = WebSocketManager()
 

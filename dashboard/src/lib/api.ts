@@ -5,6 +5,7 @@ import type {
   Task,
   TaskSummary,
   TaskCreate,
+  TaskResumeReq,
   ApprovalReq,
   Approval,
 } from "./types";
@@ -42,6 +43,9 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) throw new Error(await readAPIError(res));
+  if (res.status === 204) {
+    return undefined as T;
+  }
   return res.json();
 }
 
@@ -65,6 +69,12 @@ export const getTask = (id: number) => fetchAPI<Task>(`/tasks/${id}`);
 export const createTask = (data: TaskCreate) =>
   fetchAPI<Task>("/tasks", { method: "POST", body: JSON.stringify(data) });
 
+export const resumeTask = (id: number, data: TaskResumeReq) =>
+  fetchAPI<Task>(`/tasks/${id}/resume`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
 export const approvePlan = (id: number, data: ApprovalReq) =>
   fetchAPI<Approval>(`/tasks/${id}/approve-plan`, {
     method: "POST",
@@ -78,7 +88,10 @@ export const approveMerge = (id: number, data: ApprovalReq) =>
   });
 
 export const cancelTask = (id: number) =>
-  fetchAPI<void>(`/tasks/${id}/cancel`, { method: "POST" });
+  fetchAPI<Task>(`/tasks/${id}/cancel`, { method: "POST" });
+
+export const deleteTask = (id: number) =>
+  fetchAPI<void>(`/tasks/${id}`, { method: "DELETE" });
 
 export const getTaskLogs = (id: number) =>
   fetch(`${API_BASE}/tasks/${id}/logs`).then((r) => r.text());

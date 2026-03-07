@@ -6,7 +6,7 @@ export function getWSUrl(taskId?: number): string {
 }
 
 export type WSMessage = {
-  type: "task_state_changed" | "task_log_line";
+  type: "task_state_changed" | "task_log_line" | "task_deleted";
   task_id: number;
   data: Record<string, string>;
 };

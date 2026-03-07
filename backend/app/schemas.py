@@ -46,6 +46,12 @@ class TaskCreate(BaseModel):
     repo_id: int
     title: str
     description: str = ""
+    scheduled_for: datetime | None = None
+    blocked_by_task_id: int | None = None
+
+
+class TaskResumeRequest(BaseModel):
+    comment: str = ""
 
 
 class TaskResponse(BaseModel):
@@ -53,6 +59,9 @@ class TaskResponse(BaseModel):
     repo_id: int
     title: str
     description: str
+    scheduled_for: datetime | None = None
+    blocked_by_task_id: int | None = None
+    blocked_by_title: str | None = None
     status: TaskStatus
     branch_name: str | None
     workspace_path: str | None
@@ -70,6 +79,9 @@ class TaskListResponse(BaseModel):
     id: int
     repo_id: int
     title: str
+    scheduled_for: datetime | None = None
+    blocked_by_task_id: int | None = None
+    blocked_by_title: str | None = None
     status: TaskStatus
     created_at: datetime
     updated_at: datetime

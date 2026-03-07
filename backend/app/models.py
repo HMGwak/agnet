@@ -16,6 +16,7 @@ class TaskStatus(str, enum.Enum):
     TESTING = "TESTING"
     AWAIT_MERGE_APPROVAL = "AWAIT_MERGE_APPROVAL"
     MERGING = "MERGING"
+    NEEDS_ATTENTION = "NEEDS_ATTENTION"
     DONE = "DONE"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
@@ -40,6 +41,8 @@ class Task(Base):
     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"))
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str] = mapped_column(Text, default="")
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    blocked_by_task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[TaskStatus] = mapped_column(
         Enum(TaskStatus), default=TaskStatus.PENDING
     )
