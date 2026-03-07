@@ -7,8 +7,16 @@ from app.models import Repo, Task, TaskStatus
 
 
 class FakeWorkspaceManager:
-    async def create_worktree(self, repo_path: Path, branch_name: str, task_id: int) -> Path:
-        return repo_path / f"task-{task_id}"
+    async def create_worktree(
+        self,
+        repo_path: Path,
+        branch_name: str,
+        task_id: int,
+        repo_id: int | None = None,
+    ) -> Path:
+        if repo_id is None:
+            return Path(f"D:/workspaces/task-{task_id}")
+        return Path(f"D:/workspaces/repo-{repo_id}/task-{task_id}")
 
     async def cleanup_worktree(self, repo_path: Path, workspace_path: Path) -> None:
         return None
@@ -116,7 +124,7 @@ async def test_workflow_engine_moves_pending_task_to_plan_approval():
 
     assert task.status == TaskStatus.AWAIT_PLAN_APPROVAL
     assert task.plan_text == "1. Do work"
-    assert task.workspace_path == "D:\\repo\\task-1" or task.workspace_path == "D:/repo/task-1"
+    assert task.workspace_path == "D:\\workspaces\\repo-2\\task-1" or task.workspace_path == "D:/workspaces/repo-2/task-1"
     assert events.transitions == [
         (1, "PENDING", "PREPARING_WORKSPACE"),
         (1, "PREPARING_WORKSPACE", "PLANNING"),

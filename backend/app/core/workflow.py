@@ -41,7 +41,7 @@ class SymphonyWorkflowEngine:
                 if task.status == TaskStatus.PENDING:
                     await self._update_status(session, task, TaskStatus.PREPARING_WORKSPACE)
                     workspace = await self.git.create_worktree(
-                        Path(repo.path), task.branch_name, task.id
+                        Path(repo.path), task.branch_name, task.id, repo.id
                     )
                     task.workspace_path = str(workspace)
                     await session.commit()

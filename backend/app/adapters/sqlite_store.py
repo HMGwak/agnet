@@ -21,6 +21,10 @@ class SQLiteStore:
         await db.refresh(repo)
         return repo
 
+    async def delete_repo(self, db, repo: Repo) -> None:
+        await db.delete(repo)
+        await db.commit()
+
     async def get_task(self, db, task_id: int):
         task = await db.get(Task, task_id)
         if task and should_mark_needs_attention(task):
@@ -123,5 +127,13 @@ class SQLiteStore:
     async def find_dependent_task(self, db, task_id: int):
         result = await db.execute(
             select(Task.id, Task.title).where(Task.blocked_by_task_id == task_id)
+        )
+        return result.first()
+
+    async def find_repo_task(self, db, repo_id: int):
+        result = await db.execute(
+            select(Task.id, Task.title, Task.status)
+            .where(Task.repo_id == repo_id)
+            .order_by(Task.created_at.desc())
         )
         return result.first()

@@ -1,4 +1,7 @@
-from app.core.task_commands import TaskCommandService
-from app.core.workflow import SymphonyWorkflowEngine
+"""Core workflow package.
 
-__all__ = ["SymphonyWorkflowEngine", "TaskCommandService"]
+Keep package init import-light to avoid adapter/service import cycles during
+application bootstrap.
+"""
+
+__all__: list[str] = []

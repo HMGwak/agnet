@@ -64,3 +64,13 @@ async def get_repo(repo_id: int, request: Request, db: AsyncSession = Depends(ge
     if not repo:
         raise HTTPException(status_code=404, detail="Repo not found")
     return repo
+
+
+@router.delete("/{repo_id}", status_code=204)
+async def delete_repo(repo_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        await request.app.state.services.repo_service.delete_repo(db, repo_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

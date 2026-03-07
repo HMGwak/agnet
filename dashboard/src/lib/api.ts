@@ -55,6 +55,8 @@ export const createRepo = (data: RepoCreate) =>
   fetchAPI<Repo>("/repos", { method: "POST", body: JSON.stringify(data) });
 export const pickRepoPath = () =>
   fetchAPI<RepoPathPickResponse>("/repos/pick-path", { method: "POST" });
+export const deleteRepo = (id: number) =>
+  fetchAPI<void>(`/repos/${id}`, { method: "DELETE" });
 
 // Tasks
 export const getTasks = (params?: { status?: string; repo_id?: number }) => {

@@ -66,11 +66,27 @@ class GitManager:
             if rc != 0:
                 raise RuntimeError(f"Failed to configure git user.email: {err.strip()}")
 
-    async def create_worktree(self, repo_path: Path, branch_name: str, task_id: int) -> Path:
-        workspace_path = self.workspaces_dir / f"task-{task_id}"
+    def _workspace_path(self, task_id: int, repo_id: int | None = None) -> Path:
+        if repo_id is None:
+            return self.workspaces_dir / f"task-{task_id}"
+        return self.workspaces_dir / f"repo-{repo_id}" / f"task-{task_id}"
+
+    async def create_worktree(
+        self,
+        repo_path: Path,
+        branch_name: str,
+        task_id: int,
+        repo_id: int | None = None,
+    ) -> Path:
+        workspace_path = self._workspace_path(task_id, repo_id)
+        legacy_workspace_path = self._workspace_path(task_id)
+
+        workspace_path.parent.mkdir(parents=True, exist_ok=True)
 
         if workspace_path.exists():
             await self.cleanup_worktree(repo_path, workspace_path)
+        if legacy_workspace_path != workspace_path and legacy_workspace_path.exists():
+            await self.cleanup_worktree(repo_path, legacy_workspace_path)
 
         # Check if branch already exists
         rc, out, _ = await self._run_git(
@@ -121,3 +137,5 @@ class GitManager:
         if workspace_path.exists():
             with contextlib.suppress(FileNotFoundError):
                 shutil.rmtree(workspace_path)
+        with contextlib.suppress(OSError):
+            workspace_path.parent.rmdir()

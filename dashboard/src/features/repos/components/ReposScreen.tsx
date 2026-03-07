@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRepos } from "@/hooks/useTasks";
-import { createRepo, pickRepoPath } from "@/lib/api";
+import { createRepo, deleteRepo, pickRepoPath } from "@/lib/api";
 
 function normalizeRepoPath(value: string): string {
   let cleaned = value.trim();
@@ -24,6 +24,7 @@ export function ReposScreen() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [browsing, setBrowsing] = useState(false);
+  const [deletingRepoId, setDeletingRepoId] = useState<number | null>(null);
 
   async function handleBrowse() {
     setError("");
@@ -60,6 +61,26 @@ export function ReposScreen() {
       setError(err instanceof Error ? err.message : "Failed to create repo");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleDelete(repoId: number, repoName: string) {
+    const confirmed = window.confirm(
+      `Remove ${repoName} from this tool?\n\nThe local folder will not be deleted.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setError("");
+    setDeletingRepoId(repoId);
+    try {
+      await deleteRepo(repoId);
+      await mutate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete repo");
+    } finally {
+      setDeletingRepoId(null);
     }
   }
 
@@ -135,17 +156,18 @@ export function ReposScreen() {
               <th className="text-left px-4 py-3 font-medium text-gray-600">Path</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Branch</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Registered</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-gray-500">Loading...</td>
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">Loading...</td>
               </tr>
             )}
             {repos && repos.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                   No repositories registered yet.
                 </td>
               </tr>
@@ -157,6 +179,16 @@ export function ReposScreen() {
                 <td className="px-4 py-3">{repo.default_branch}</td>
                 <td className="px-4 py-3 text-gray-500">
                   {new Date(repo.created_at).toLocaleDateString()}
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(repo.id, repo.name)}
+                    disabled={deletingRepoId === repo.id || submitting || browsing}
+                    className="rounded border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {deletingRepoId === repo.id ? "Removing..." : "Remove"}
+                  </button>
                 </td>
               </tr>
             ))}

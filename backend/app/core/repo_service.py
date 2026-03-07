@@ -25,3 +25,17 @@ class RepoService:
 
     async def get_repo(self, db, repo_id: int):
         return await self.store.get_repo(db, repo_id)
+
+    async def delete_repo(self, db, repo_id: int) -> None:
+        repo = await self.store.get_repo(db, repo_id)
+        if repo is None:
+            raise LookupError("Repo not found")
+
+        task = await self.store.find_repo_task(db, repo_id)
+        if task is not None:
+            task_id, title, status = task
+            raise ValueError(
+                f"Cannot delete repo while task #{task_id} ({title}) is still registered with status {status.value}"
+            )
+
+        await self.store.delete_repo(db, repo)

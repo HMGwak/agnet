@@ -6,7 +6,7 @@ name = "agent"
 script = ""
 
 [setup.win32]
-script = ".\\start.bat"
+script = "./start.bat"
 
 [[actions]]
 name = "실행하기 (git)"
