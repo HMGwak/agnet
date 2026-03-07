@@ -6,7 +6,17 @@ This repository has two main apps:
 - `backend/`: FastAPI service. Core code lives in `backend/app/`, with API routers in `backend/app/api/` and service logic in `backend/app/services/`.
 - `backend/tests/`: pytest suite for backend behavior, currently centered on Git/worktree flows.
 - `dashboard/`: Next.js App Router frontend. Routes live in `dashboard/src/app/`, reusable UI in `dashboard/src/components/`, and client helpers in `dashboard/src/lib/` and `dashboard/src/hooks/`.
+- `docs/`: architecture and design references for local implementation decisions.
 - Runtime directories such as `logs/`, `repos/`, `workspaces/`, and `database/` are kept at the repo root.
+
+## Architecture Principles
+Treat `openai/symphony` as a specification reference, not as a code dependency to wrap directly. Keep local code split into:
+
+- `backend/app/core/`: workflow rules, lifecycle policy, and orchestration contracts.
+- `backend/app/adapters/` and `backend/app/bootstrap/`: integration with SQLite, Git, Codex, websocket, and app startup.
+- `dashboard/` plus startup scripts: wrapper shell over the current public API.
+
+Do not couple UI, startup scripts, or transport routes directly to core internals when adding new features. Prefer preserving public API/UI behavior while moving business rules into core-facing services.
 
 ## Build, Test, and Development Commands
 - `./start.sh` or `start.bat`: start backend on `:8001` and dashboard on `:3000`.

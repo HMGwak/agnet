@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
+from app.core.policies import is_task_ready
 from app.models import Repo, Task, TaskStatus
 
 if TYPE_CHECKING:
@@ -37,20 +37,7 @@ class WorkerPool:
         await self.queue.put(task_id)
 
     async def _is_task_ready(self, session, task: Task) -> bool:
-        if task.status != TaskStatus.PENDING:
-            return True
-
-        now = datetime.now()
-        if task.scheduled_for and task.scheduled_for > now:
-            return False
-
-        if task.blocked_by_task_id:
-            dependency = await session.get(Task, task.blocked_by_task_id)
-            if not dependency:
-                return False
-            return dependency.status == TaskStatus.DONE
-
-        return True
+        return await is_task_ready(session, task)
 
     async def start(self, session_factory):
         self._running = True

@@ -1,8 +1,17 @@
 
-
 # AI Dev Automation Dashboard
 
 ## Detailed PRD & System Design (Symphony + Codex)
+
+## Architecture Positioning
+
+This project follows Symphony as a specification reference, not as a code dependency.
+
+- The backend `core` layer owns workflow rules, task lifecycle, and agent/workspace contracts.
+- Adapters provide SQLite, Git, Codex, websocket, and startup integration.
+- The dashboard and platform startup scripts act as wrapper shell layers over the public API.
+
+This keeps the local product independent from upstream implementation details while preserving a Symphony-compatible orchestration model.
 
 Author: Generated Design\
 Scope: Personal AI Development Automation System\
