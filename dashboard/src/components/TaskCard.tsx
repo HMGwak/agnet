@@ -1,8 +1,9 @@
 import type { TaskStatus, TaskSummary } from "@/lib/types";
+import { formatKSTDateTime, parseBackendTimestamp } from "@/lib/time";
 import { StatusBadge } from "./StatusBadge";
 
 function parseTimestamp(dateStr: string): number {
-  return new Date(dateStr).getTime();
+  return parseBackendTimestamp(dateStr);
 }
 
 function formatRelativeTime(dateStr: string, now: number): string {
@@ -48,7 +49,7 @@ function isTerminalStatus(status: TaskStatus): boolean {
 }
 
 function formatSchedule(dateStr: string): string {
-  return new Date(dateStr).toLocaleString([], {
+  return formatKSTDateTime(dateStr, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -83,6 +84,12 @@ export function TaskCard({
           <StatusBadge status={task.status} />
           <span className="text-xs text-gray-400">{formatRelativeTime(task.created_at, now)}</span>
         </div>
+        {task.workspace_name && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            {task.workspace_name}
+            {task.workspace_kind ? ` · ${task.workspace_kind}` : ""}
+          </div>
+        )}
         <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500">
           <span>Started {formatSchedule(task.created_at)}</span>
           <span>Elapsed {formatElapsedTime(task.created_at, endTime)}</span>

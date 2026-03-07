@@ -35,6 +35,21 @@ function Stop-PortProcess {
     }
 }
 
+function Reset-LogFile {
+    param([string]$Path)
+
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        try {
+            Set-Content -Path $Path -Value ""
+            return
+        } catch [System.IO.IOException] {
+            Start-Sleep -Milliseconds 250
+        }
+    }
+
+    throw "Failed to reset log file after waiting for release: $Path"
+}
+
 Write-Host "Starting AI Dev Automation Dashboard..."
 
 Require-Command -Name "uv" -InstallHint "Install it with: winget install --id=astral-sh.uv -e"
@@ -68,10 +83,10 @@ if (Test-Path "package-lock.json") {
 Pop-Location
 
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
-Set-Content -Path $backendOutLog -Value ""
-Set-Content -Path $backendErrLog -Value ""
-Set-Content -Path $dashboardOutLog -Value ""
-Set-Content -Path $dashboardErrLog -Value ""
+Reset-LogFile -Path $backendOutLog
+Reset-LogFile -Path $backendErrLog
+Reset-LogFile -Path $dashboardOutLog
+Reset-LogFile -Path $dashboardErrLog
 
 $npmCmd = (Get-Command "npm.cmd" -ErrorAction Stop).Source
 

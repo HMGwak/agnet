@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 
 from app.core.policies import is_task_ready
-from app.models import Repo, Task, TaskStatus
+from app.models import Repo, Task, TaskStatus, Workspace
 
 if TYPE_CHECKING:
     from app.services.orchestrator import Orchestrator
@@ -58,12 +58,15 @@ class WorkerPool:
             for task in result.scalars():
                 if task.workspace_path:
                     repo = await session.get(Repo, task.repo_id)
+                    workspace = await session.get(Workspace, task.workspace_id) if task.workspace_id else None
                     try:
                         await git_mgr.cleanup_worktree(
                             Path(repo.path), Path(task.workspace_path)
                         )
                     except Exception:
                         pass
+                    if workspace is not None:
+                        workspace.workspace_path = None
                     task.workspace_path = None
                 task.status = TaskStatus.PENDING
                 task.retry_count = 0

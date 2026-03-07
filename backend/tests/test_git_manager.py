@@ -1,4 +1,5 @@
 import subprocess
+import stat
 
 import pytest
 
@@ -19,30 +20,71 @@ def temp_repo(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_create_worktree(temp_repo, tmp_path):
+async def test_create_worktree_uses_workspace_scoped_path(temp_repo, tmp_path):
     gm = GitManager(tmp_path / "workspaces")
-    ws = await gm.create_worktree(temp_repo, "task/1/test-branch", 1, repo_id=11)
+    ws = await gm.create_worktree(
+        temp_repo,
+        "workspace/1/main",
+        1,
+        repo_id=11,
+        repo_name="Demo Repo",
+        workspace_name="Main",
+        base_branch="main",
+    )
     assert ws.exists()
     assert (ws / "README.md").exists()
-    assert ws == tmp_path / "workspaces" / "repo-11" / "task-1"
+    assert ws == tmp_path / "workspaces" / "repo-11-demo-repo" / "workspace-1-main"
 
 
 @pytest.mark.asyncio
 async def test_create_worktree_existing_branch(temp_repo, tmp_path):
-    """Test reusing an existing branch (crash recovery scenario)."""
-    # Create branch first
     subprocess.run(
-        ["git", "branch", "task/3/existing"], cwd=temp_repo, check=True, capture_output=True
+        ["git", "branch", "workspace/3/existing"], cwd=temp_repo, check=True, capture_output=True
     )
     gm = GitManager(tmp_path / "workspaces")
-    ws = await gm.create_worktree(temp_repo, "task/3/existing", 3, repo_id=11)
+    ws = await gm.create_worktree(
+        temp_repo,
+        "workspace/3/existing",
+        3,
+        repo_id=11,
+        repo_name="Demo Repo",
+        workspace_name="Existing",
+        base_branch="main",
+    )
     assert ws.exists()
+    assert ws == tmp_path / "workspaces" / "repo-11-demo-repo" / "workspace-3-existing"
+
+
+@pytest.mark.asyncio
+async def test_create_worktree_uses_ascii_safe_path_for_unicode_workspace_name(temp_repo, tmp_path):
+    gm = GitManager(tmp_path / "workspaces")
+    ws = await gm.create_worktree(
+        temp_repo,
+        "workspace/7/task-a1b2c3d4",
+        7,
+        repo_id=11,
+        repo_name="Demo Repo",
+        workspace_name="테트리스 게임 만들기",
+        base_branch="main",
+    )
+    assert ws.exists()
+    assert ws.parent == tmp_path / "workspaces" / "repo-11-demo-repo"
+    assert ws.name.startswith("workspace-7-task-")
+    assert "테트리스" not in ws.name
 
 
 @pytest.mark.asyncio
 async def test_get_diff(temp_repo, tmp_path):
     gm = GitManager(tmp_path / "workspaces")
-    ws = await gm.create_worktree(temp_repo, "task/4/diff-test", 4, repo_id=11)
+    ws = await gm.create_worktree(
+        temp_repo,
+        "workspace/4/diff-test",
+        4,
+        repo_id=11,
+        repo_name="Demo Repo",
+        workspace_name="Diff Test",
+        base_branch="main",
+    )
     (ws / "new_file.py").write_text("print('hello')")
     subprocess.run(["git", "add", "."], cwd=ws, check=True, capture_output=True)
     subprocess.run(
@@ -54,60 +96,84 @@ async def test_get_diff(temp_repo, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_merge_to_main(temp_repo, tmp_path):
+async def test_merge_to_main_uses_base_branch(temp_repo, tmp_path):
     gm = GitManager(tmp_path / "workspaces")
-    ws = await gm.create_worktree(temp_repo, "task/2/feature", 2, repo_id=11)
+    ws = await gm.create_worktree(
+        temp_repo,
+        "workspace/2/feature",
+        2,
+        repo_id=11,
+        repo_name="Demo Repo",
+        workspace_name="Feature",
+        base_branch="main",
+    )
     (ws / "new_file.py").write_text("print('hello')")
     subprocess.run(["git", "add", "."], cwd=ws, check=True, capture_output=True)
     subprocess.run(
         ["git", "-c", "user.name=test", "-c", "user.email=test@test.com", "commit", "-m", "add file"],
         cwd=ws, check=True, capture_output=True,
     )
-    success, msg = await gm.merge_to_main(temp_repo, "task/2/feature")
+    success, msg = await gm.merge_to_main(temp_repo, "workspace/2/feature", "main")
     assert success
 
 
 @pytest.mark.asyncio
 async def test_cleanup_worktree(temp_repo, tmp_path):
     gm = GitManager(tmp_path / "workspaces")
-    ws = await gm.create_worktree(temp_repo, "task/5/cleanup", 5, repo_id=11)
+    ws = await gm.create_worktree(
+        temp_repo,
+        "workspace/5/cleanup",
+        5,
+        repo_id=11,
+        repo_name="Demo Repo",
+        workspace_name="Cleanup",
+        base_branch="main",
+    )
     assert ws.exists()
     await gm.cleanup_worktree(temp_repo, ws)
     assert not ws.exists()
-    assert not (tmp_path / "workspaces" / "repo-11").exists()
+    assert not (tmp_path / "workspaces" / "repo-11-demo-repo").exists()
 
 
 @pytest.mark.asyncio
 async def test_create_worktree_cleans_existing_workspace_dir(temp_repo, tmp_path):
     gm = GitManager(tmp_path / "workspaces")
-    stale_workspace = tmp_path / "workspaces" / "repo-11" / "task-6"
+    stale_workspace = tmp_path / "workspaces" / "repo-11-demo-repo" / "workspace-6-recreated"
     stale_workspace.mkdir(parents=True)
     (stale_workspace / "stale.txt").write_text("stale")
 
-    ws = await gm.create_worktree(temp_repo, "task/6/recreated", 6, repo_id=11)
+    ws = await gm.create_worktree(
+        temp_repo,
+        "workspace/6/recreated",
+        6,
+        repo_id=11,
+        repo_name="Demo Repo",
+        workspace_name="Recreated",
+        base_branch="main",
+    )
 
     assert ws.exists()
     assert not (ws / "stale.txt").exists()
 
 
 @pytest.mark.asyncio
-async def test_create_worktree_cleans_legacy_flat_workspace_dir(temp_repo, tmp_path):
+async def test_cleanup_worktree_removes_readonly_directory(temp_repo, tmp_path):
     gm = GitManager(tmp_path / "workspaces")
-    legacy_workspace = tmp_path / "workspaces" / "task-7"
-    legacy_workspace.mkdir(parents=True)
+    stale_workspace = tmp_path / "workspaces" / "workspace-8"
+    readonly_dir = stale_workspace / "backend" / "backend_app" / "api" / "routers"
+    readonly_dir.mkdir(parents=True)
+    readonly_file = readonly_dir / "sample.py"
+    readonly_file.write_text("print('hello')", encoding="utf-8")
+    stale_workspace.chmod(stat.S_IREAD)
+    (stale_workspace / "backend").chmod(stat.S_IREAD)
+    (stale_workspace / "backend" / "backend_app").chmod(stat.S_IREAD)
+    (stale_workspace / "backend" / "backend_app" / "api").chmod(stat.S_IREAD)
+    readonly_dir.chmod(stat.S_IREAD)
+    readonly_file.chmod(stat.S_IREAD)
 
-    subprocess.run(
-        ["git", "worktree", "add", "-b", "task/7/legacy", str(legacy_workspace)],
-        cwd=temp_repo,
-        check=True,
-        capture_output=True,
-    )
+    await gm.cleanup_worktree(temp_repo, stale_workspace)
 
-    ws = await gm.create_worktree(temp_repo, "task/7/legacy", 7, repo_id=11)
-
-    assert ws.exists()
-    assert ws == tmp_path / "workspaces" / "repo-11" / "task-7"
-    assert not legacy_workspace.exists()
+    assert not stale_workspace.exists()
 
 
 @pytest.mark.asyncio

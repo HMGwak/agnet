@@ -22,6 +22,11 @@ class TaskStatus(str, enum.Enum):
     CANCELLED = "CANCELLED"
 
 
+class WorkspaceKind(str, enum.Enum):
+    MAIN = "MAIN"
+    FEATURE = "FEATURE"
+
+
 class Repo(Base):
     __tablename__ = "repos"
 
@@ -31,7 +36,28 @@ class Repo(Base):
     default_branch: Mapped[str] = mapped_column(String(100), default="main")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
+    workspaces: Mapped[list["Workspace"]] = relationship(back_populates="repo")
     tasks: Mapped[list["Task"]] = relationship(back_populates="repo")
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"))
+    name: Mapped[str] = mapped_column(String(255))
+    kind: Mapped[WorkspaceKind] = mapped_column(Enum(WorkspaceKind), default=WorkspaceKind.FEATURE)
+    base_branch: Mapped[str] = mapped_column(String(100), default="main")
+    branch_name: Mapped[str] = mapped_column(String(200))
+    workspace_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    repo: Mapped["Repo"] = relationship(back_populates="workspaces")
+    tasks: Mapped[list["Task"]] = relationship(back_populates="workspace")
 
 
 class Task(Base):
@@ -39,6 +65,7 @@ class Task(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"))
+    workspace_id: Mapped[int | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str] = mapped_column(Text, default="")
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -58,6 +85,7 @@ class Task(Base):
     )
 
     repo: Mapped["Repo"] = relationship(back_populates="tasks")
+    workspace: Mapped[Workspace | None] = relationship(back_populates="tasks")
     runs: Mapped[list["Run"]] = relationship(back_populates="task")
     approvals: Mapped[list["Approval"]] = relationship(back_populates="task")
 

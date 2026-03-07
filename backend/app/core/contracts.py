@@ -13,12 +13,20 @@ class WorkspaceManager(Protocol):
         self,
         repo_path: Path,
         branch_name: str,
-        task_id: int,
+        workspace_id: int,
         repo_id: int | None = None,
+        repo_name: str | None = None,
+        workspace_name: str | None = None,
+        base_branch: str = "main",
     ) -> Path: ...
     async def cleanup_worktree(self, repo_path: Path, workspace_path: Path) -> None: ...
     async def get_diff(self, workspace_path: Path, base_branch: str = "main") -> str: ...
-    async def merge_to_main(self, repo_path: Path, branch_name: str) -> tuple[bool, str]: ...
+    async def merge_to_main(
+        self,
+        repo_path: Path,
+        branch_name: str,
+        base_branch: str = "main",
+    ) -> tuple[bool, str]: ...
     async def ensure_repository(self, repo_path: Path, default_branch: str = "main") -> None: ...
 
 

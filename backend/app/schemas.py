@@ -1,8 +1,9 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
-from app.models import TaskStatus
+from app.models import TaskStatus, WorkspaceKind
 
 
 def normalize_repo_path(value: str) -> str:
@@ -41,6 +42,26 @@ class RepoResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class WorkspaceCreate(BaseModel):
+    name: str
+
+
+class WorkspaceResponse(BaseModel):
+    id: int
+    repo_id: int
+    name: str
+    kind: WorkspaceKind
+    base_branch: str
+    branch_name: str
+    workspace_path: str | None
+    is_active: bool
+    task_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Task ---
 class TaskCreate(BaseModel):
     repo_id: int
@@ -48,6 +69,37 @@ class TaskCreate(BaseModel):
     description: str = ""
     scheduled_for: datetime | None = None
     blocked_by_task_id: int | None = None
+    workspace_id: int | None = None
+    create_workspace: WorkspaceCreate | None = None
+
+
+class TaskIntakeTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    message: str
+
+
+class TaskIntakeDraft(BaseModel):
+    workspace_mode: Literal["existing", "new", "unspecified"] = "unspecified"
+    workspace_id: int | None = None
+    new_workspace_name: str | None = None
+    title: str = ""
+    description: str = ""
+    blocked_by_task_id: int | None = None
+    scheduled_for: datetime | None = None
+
+
+class TaskIntakeRequest(BaseModel):
+    repo_id: int
+    user_request: str
+    conversation: list[TaskIntakeTurn] = []
+    draft: TaskIntakeDraft | None = None
+
+
+class TaskIntakeResponse(BaseModel):
+    draft: TaskIntakeDraft
+    questions: list[str] = []
+    needs_confirmation: bool
+    notes: list[str] = []
 
 
 class TaskResumeRequest(BaseModel):
@@ -57,6 +109,10 @@ class TaskResumeRequest(BaseModel):
 class TaskResponse(BaseModel):
     id: int
     repo_id: int
+    workspace_id: int | None = None
+    workspace_name: str | None = None
+    workspace_kind: WorkspaceKind | None = None
+    workspace_task_count: int = 0
     title: str
     description: str
     scheduled_for: datetime | None = None
@@ -78,6 +134,10 @@ class TaskResponse(BaseModel):
 class TaskListResponse(BaseModel):
     id: int
     repo_id: int
+    workspace_id: int | None = None
+    workspace_name: str | None = None
+    workspace_kind: WorkspaceKind | None = None
+    workspace_task_count: int = 0
     title: str
     scheduled_for: datetime | None = None
     blocked_by_task_id: int | None = None

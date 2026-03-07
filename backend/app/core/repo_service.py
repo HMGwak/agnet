@@ -18,7 +18,9 @@ class RepoService:
         if not (repo_path / ".git").exists():
             await self.workspace_manager.ensure_repository(repo_path, default_branch)
 
-        return await self.store.create_repo(db, name, str(repo_path), default_branch)
+        repo = await self.store.create_repo(db, name, str(repo_path), default_branch)
+        await self.store.ensure_main_workspace(db, repo)
+        return repo
 
     async def list_repos(self, db):
         return await self.store.list_repos(db)
@@ -37,5 +39,17 @@ class RepoService:
             raise ValueError(
                 f"Cannot delete repo while task #{task_id} ({title}) is still registered with status {status.value}"
             )
+
+        workspaces = await self.store.list_workspaces(db, repo_id)
+        for workspace in workspaces:
+            if workspace.workspace_path:
+                try:
+                    await self.workspace_manager.cleanup_worktree(
+                        Path(repo.path),
+                        Path(workspace.workspace_path),
+                    )
+                except Exception:
+                    pass
+            await self.store.delete_workspace(db, workspace)
 
         await self.store.delete_repo(db, repo)

@@ -4,8 +4,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.repos import router as repos_router
+from app.api.task_intake import router as task_intake_router
 from app.api.tasks import router as tasks_router
 from app.api.websocket import router as ws_router
+from app.api.workspaces import router as workspaces_router
 from app.bootstrap import create_runtime
 from app.database import init_db
 
@@ -38,5 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(repos_router)
+app.include_router(task_intake_router)
 app.include_router(tasks_router)
+app.include_router(workspaces_router)
 app.include_router(ws_router)

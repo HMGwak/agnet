@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRepos } from "@/hooks/useTasks";
 import { createRepo, deleteRepo, pickRepoPath } from "@/lib/api";
+import { formatKSTDate } from "@/lib/time";
 
 function normalizeRepoPath(value: string): string {
   let cleaned = value.trim();
@@ -178,7 +179,7 @@ export function ReposScreen() {
                 <td className="px-4 py-3 font-mono text-gray-600 text-xs">{repo.path}</td>
                 <td className="px-4 py-3">{repo.default_branch}</td>
                 <td className="px-4 py-3 text-gray-500">
-                  {new Date(repo.created_at).toLocaleDateString()}
+                  {formatKSTDate(repo.created_at)}
                 </td>
                 <td className="px-4 py-3">
                   <button

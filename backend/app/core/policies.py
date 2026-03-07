@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import hashlib
 import re
+import unicodedata
 from datetime import datetime
 
 from app.models import Task, TaskStatus
 
 
 def slugify(text: str) -> str:
-    text = text.lower().strip()
-    text = re.sub(r"[^\w\s-]", "", text)
-    text = re.sub(r"[\s_]+", "-", text)
-    return text[:50]
+    original = text.strip()
+    normalized = unicodedata.normalize("NFKD", original)
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii").lower().strip()
+    ascii_text = re.sub(r"[^\w\s-]", "", ascii_text)
+    ascii_text = re.sub(r"[\s_]+", "-", ascii_text).strip("-")
+    if ascii_text:
+        return ascii_text[:50]
+    if not original:
+        return ""
+    digest = hashlib.sha1(original.encode("utf-8")).hexdigest()[:10]
+    return f"task-{digest}"
 
 
 def should_mark_needs_attention(task: Task) -> bool:

@@ -1,7 +1,11 @@
 import asyncio
 import contextlib
+import os
+import stat
 import shutil
 from pathlib import Path
+
+from app.core.policies import slugify
 
 
 class GitManager:
@@ -66,27 +70,54 @@ class GitManager:
             if rc != 0:
                 raise RuntimeError(f"Failed to configure git user.email: {err.strip()}")
 
-    def _workspace_path(self, task_id: int, repo_id: int | None = None) -> Path:
+    def _handle_remove_readonly(self, func, path, exc_info):
+        with contextlib.suppress(FileNotFoundError):
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+            func(path)
+
+    def _remove_tree_force(self, workspace_path: Path) -> None:
+        if not workspace_path.exists():
+            return
+        shutil.rmtree(workspace_path, onerror=self._handle_remove_readonly)
+
+    def _slug(self, text: str, max_length: int = 40) -> str:
+        return slugify(text)[:max_length]
+
+    def _segment(self, prefix: str, identifier: int, label: str | None = None) -> str:
+        slug = self._slug(label or "")
+        if slug:
+            return f"{prefix}-{identifier}-{slug}"
+        return f"{prefix}-{identifier}"
+
+    def _workspace_path(
+        self,
+        workspace_id: int,
+        repo_id: int | None = None,
+        repo_name: str | None = None,
+        workspace_name: str | None = None,
+    ) -> Path:
+        workspace_dir = self._segment("workspace", workspace_id, workspace_name)
         if repo_id is None:
-            return self.workspaces_dir / f"task-{task_id}"
-        return self.workspaces_dir / f"repo-{repo_id}" / f"task-{task_id}"
+            return self.workspaces_dir / workspace_dir
+        repo_dir = self._segment("repo", repo_id, repo_name)
+        return self.workspaces_dir / repo_dir / workspace_dir
 
     async def create_worktree(
         self,
         repo_path: Path,
         branch_name: str,
-        task_id: int,
+        workspace_id: int,
         repo_id: int | None = None,
+        repo_name: str | None = None,
+        workspace_name: str | None = None,
+        base_branch: str = "main",
     ) -> Path:
-        workspace_path = self._workspace_path(task_id, repo_id)
-        legacy_workspace_path = self._workspace_path(task_id)
+        workspace_path = self._workspace_path(workspace_id, repo_id, repo_name, workspace_name)
 
         workspace_path.parent.mkdir(parents=True, exist_ok=True)
 
         if workspace_path.exists():
             await self.cleanup_worktree(repo_path, workspace_path)
-        if legacy_workspace_path != workspace_path and legacy_workspace_path.exists():
-            await self.cleanup_worktree(repo_path, legacy_workspace_path)
 
         # Check if branch already exists
         rc, out, _ = await self._run_git(
@@ -100,7 +131,14 @@ class GitManager:
             )
         else:
             rc, out, err = await self._run_git(
-                "-C", str(repo_path), "worktree", "add", "-b", branch_name, str(workspace_path)
+                "-C",
+                str(repo_path),
+                "worktree",
+                "add",
+                "-b",
+                branch_name,
+                str(workspace_path),
+                base_branch,
             )
 
         if rc != 0:
@@ -114,10 +152,15 @@ class GitManager:
         )
         return out
 
-    async def merge_to_main(self, repo_path: Path, branch_name: str) -> tuple[bool, str]:
-        rc, _, err = await self._run_git("-C", str(repo_path), "checkout", "main")
+    async def merge_to_main(
+        self,
+        repo_path: Path,
+        branch_name: str,
+        base_branch: str = "main",
+    ) -> tuple[bool, str]:
+        rc, _, err = await self._run_git("-C", str(repo_path), "checkout", base_branch)
         if rc != 0:
-            return False, f"Failed to checkout main: {err}"
+            return False, f"Failed to checkout {base_branch}: {err}"
 
         rc, out, err = await self._run_git(
             "-C", str(repo_path), "merge", "--no-ff", branch_name, "-m", f"Merge {branch_name}"
@@ -136,6 +179,6 @@ class GitManager:
         await self._run_git("-C", str(repo_path), "worktree", "prune")
         if workspace_path.exists():
             with contextlib.suppress(FileNotFoundError):
-                shutil.rmtree(workspace_path)
+                self._remove_tree_force(workspace_path)
         with contextlib.suppress(OSError):
             workspace_path.parent.rmdir()

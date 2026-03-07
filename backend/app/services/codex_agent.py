@@ -49,7 +49,7 @@ class CodexAgent:
             "--full-auto",
             "--color",
             "never",
-            prompt,
+            "-",
         ]
 
     @staticmethod
@@ -83,11 +83,17 @@ class CodexAgent:
         proc = await asyncio.create_subprocess_exec(
             *command,
             cwd=cwd,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
         if task_id is not None:
             self._processes[task_id] = proc
+
+        assert proc.stdin is not None
+        proc.stdin.write(prompt.encode("utf-8"))
+        await proc.stdin.drain()
+        proc.stdin.close()
 
         lines: list[str] = []
         assert proc.stdout is not None

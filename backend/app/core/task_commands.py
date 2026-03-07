@@ -4,7 +4,7 @@ from pathlib import Path
 
 from app.adapters.sqlite_store import SQLiteStore
 from app.core.policies import append_follow_up_instructions
-from app.models import TaskStatus
+from app.models import TaskStatus, WorkspaceKind
 
 
 class TaskCommandService:
@@ -22,10 +22,15 @@ class TaskCommandService:
         description: str,
         scheduled_for,
         blocked_by_task_id,
+        workspace_id,
+        create_workspace,
     ):
         repo = await self.store.get_repo(db, repo_id)
         if not repo:
             raise ValueError("Repo not found")
+
+        if workspace_id is not None and create_workspace is not None:
+            raise ValueError("Choose an existing workspace or create a new one, not both")
 
         dependency_task = None
         if blocked_by_task_id is not None:
@@ -35,15 +40,42 @@ class TaskCommandService:
             if dependency_task.repo_id != repo_id:
                 raise ValueError("Dependency task must belong to the same repository")
 
+        workspace = None
+        if workspace_id is not None:
+            workspace = await self.store.get_workspace(db, workspace_id)
+            if workspace is None:
+                raise LookupError("Workspace not found")
+            if workspace.repo_id != repo_id:
+                raise ValueError("Workspace must belong to the same repository")
+        elif create_workspace is not None:
+            workspace_name = create_workspace.name.strip()
+            if not workspace_name:
+                raise ValueError("Workspace name cannot be empty")
+            workspace = await self.store.create_workspace(
+                db,
+                repo_id=repo_id,
+                name=workspace_name,
+                kind=WorkspaceKind.FEATURE,
+                base_branch=repo.default_branch,
+            )
+        else:
+            workspace = await self.store.ensure_main_workspace(db, repo)
+
         task = await self.store.create_task(
             db,
             repo_id=repo_id,
+            workspace_id=workspace.id,
             title=title,
             description=description,
             scheduled_for=scheduled_for,
             blocked_by_task_id=blocked_by_task_id,
+            branch_name=workspace.branch_name,
+            workspace_path=workspace.workspace_path,
         )
         task.blocked_by_title = dependency_task.title if dependency_task else None
+        task.workspace_name = workspace.name
+        task.workspace_kind = workspace.kind
+        task.workspace_task_count = await self.store.count_workspace_tasks(db, workspace.id)
         await self.worker_pool.enqueue(task.id)
         return task
 
@@ -111,21 +143,10 @@ class TaskCommandService:
                 f"Task status is {task.status}, expected NEEDS_ATTENTION, FAILED, or CANCELLED"
             )
 
-        repo = await self.store.get_repo(db, task.repo_id)
-        if task.workspace_path and repo:
-            try:
-                await self.workflow.git.cleanup_worktree(
-                    Path(repo.path),
-                    Path(task.workspace_path),
-                )
-            except Exception:
-                pass
-
         task.description = append_follow_up_instructions(task.description, comment)
         task.error_message = None
         task.plan_text = None
         task.diff_text = None
-        task.workspace_path = None
         task.retry_count = 0
         await self._commit_status_change(db, task, TaskStatus.PENDING)
 
@@ -136,7 +157,13 @@ class TaskCommandService:
         await self.worker_pool.enqueue(task.id)
         return task
 
-    async def delete_task(self, db, task_id: int, logs_dir: Path):
+    async def delete_task(
+        self,
+        db,
+        task_id: int,
+        logs_dir: Path,
+        delete_workspace_if_empty: bool = False,
+    ):
         task = await self.store.get_task(db, task_id)
         if not task:
             raise LookupError("Task not found")
@@ -150,19 +177,12 @@ class TaskCommandService:
                 "Remove the dependency before deleting it."
             )
 
-        repo = await self.store.get_repo(db, task.repo_id)
-        workspace_path = task.workspace_path
+        workspace = None
+        if task.workspace_id is not None:
+            workspace = await self.store.get_workspace(db, task.workspace_id)
         log_path = logs_dir / f"task-{task.id}.log"
 
         await self.workflow.codex.cancel(task.id)
-        if workspace_path and repo:
-            try:
-                await self.workflow.git.cleanup_worktree(
-                    Path(repo.path),
-                    Path(workspace_path),
-                )
-            except Exception:
-                pass
 
         await self.store.delete_task_records(db, task.id)
         await db.delete(task)
@@ -170,6 +190,23 @@ class TaskCommandService:
         if log_path.exists():
             log_path.unlink(missing_ok=True)
         await self.events.broadcast_task_deleted(task_id)
+
+        if (
+            delete_workspace_if_empty
+            and workspace is not None
+            and workspace.kind == WorkspaceKind.FEATURE
+            and await self.store.count_workspace_tasks(db, workspace.id) == 0
+        ):
+            repo = await self.store.get_repo(db, workspace.repo_id)
+            if workspace.workspace_path and repo:
+                try:
+                    await self.workflow.git.cleanup_worktree(
+                        Path(repo.path),
+                        Path(workspace.workspace_path),
+                    )
+                except Exception:
+                    pass
+            await self.store.delete_workspace(db, workspace)
 
     async def _commit_status_change(self, db, task, new_status: TaskStatus):
         old_status = task.status

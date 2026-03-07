@@ -2,9 +2,13 @@ import type {
   Repo,
   RepoCreate,
   RepoPathPickResponse,
+  Workspace,
+  WorkspaceCreate,
   Task,
   TaskSummary,
   TaskCreate,
+  TaskIntakeRequest,
+  TaskIntakeResponse,
   TaskResumeReq,
   ApprovalReq,
   Approval,
@@ -57,6 +61,15 @@ export const pickRepoPath = () =>
   fetchAPI<RepoPathPickResponse>("/repos/pick-path", { method: "POST" });
 export const deleteRepo = (id: number) =>
   fetchAPI<void>(`/repos/${id}`, { method: "DELETE" });
+export const getWorkspaces = (repoId: number) =>
+  fetchAPI<Workspace[]>(`/repos/${repoId}/workspaces`);
+export const createWorkspace = (repoId: number, data: WorkspaceCreate) =>
+  fetchAPI<Workspace>(`/repos/${repoId}/workspaces`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+export const deleteWorkspace = (id: number) =>
+  fetchAPI<void>(`/workspaces/${id}`, { method: "DELETE" });
 
 // Tasks
 export const getTasks = (params?: { status?: string; repo_id?: number }) => {
@@ -70,6 +83,18 @@ export const getTask = (id: number) => fetchAPI<Task>(`/tasks/${id}`);
 
 export const createTask = (data: TaskCreate) =>
   fetchAPI<Task>("/tasks", { method: "POST", body: JSON.stringify(data) });
+
+export const analyzeTaskIntake = (data: TaskIntakeRequest) =>
+  fetchAPI<TaskIntakeResponse>("/task-intake/analyze", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const refineTaskIntake = (data: TaskIntakeRequest) =>
+  fetchAPI<TaskIntakeResponse>("/task-intake/refine", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 
 export const resumeTask = (id: number, data: TaskResumeReq) =>
   fetchAPI<Task>(`/tasks/${id}/resume`, {
@@ -92,8 +117,17 @@ export const approveMerge = (id: number, data: ApprovalReq) =>
 export const cancelTask = (id: number) =>
   fetchAPI<Task>(`/tasks/${id}/cancel`, { method: "POST" });
 
-export const deleteTask = (id: number) =>
-  fetchAPI<void>(`/tasks/${id}`, { method: "DELETE" });
+export const deleteTask = (
+  id: number,
+  options?: { delete_workspace_if_empty?: boolean }
+) => {
+  const sp = new URLSearchParams();
+  if (options?.delete_workspace_if_empty) {
+    sp.set("delete_workspace_if_empty", "true");
+  }
+  const suffix = sp.size > 0 ? `?${sp}` : "";
+  return fetchAPI<void>(`/tasks/${id}${suffix}`, { method: "DELETE" });
+};
 
 export const getTaskLogs = (id: number) =>
   fetch(`${API_BASE}/tasks/${id}/logs`).then((r) => r.text());

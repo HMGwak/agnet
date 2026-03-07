@@ -29,6 +29,8 @@ async def create_task(body: TaskCreate, request: Request, db: AsyncSession = Dep
             body.description,
             body.scheduled_for,
             body.blocked_by_task_id,
+            body.workspace_id,
+            body.create_workspace,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -119,12 +121,18 @@ async def resume_task(
 
 
 @router.delete("/{task_id}", status_code=204)
-async def delete_task(task_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+async def delete_task(
+    task_id: int,
+    request: Request,
+    delete_workspace_if_empty: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+):
     try:
         await request.app.state.services.task_commands.delete_task(
             db,
             task_id,
             Path(settings.LOGS_DIR),
+            delete_workspace_if_empty,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

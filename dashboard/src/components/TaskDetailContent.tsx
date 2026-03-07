@@ -13,6 +13,7 @@ import { PlanApproval } from "@/components/PlanApproval";
 import { MergeApproval } from "@/components/MergeApproval";
 import { DiffViewer } from "@/components/DiffViewer";
 import { LogStream } from "@/components/LogStream";
+import { formatKSTDateTime } from "@/lib/time";
 
 type Props = {
   taskId: number;
@@ -59,7 +60,7 @@ export function TaskDetailContent({
   const canDelete = task.status === "CANCELLED";
 
   function formatSchedule(dateStr: string) {
-    return new Date(dateStr).toLocaleString();
+    return formatKSTDateTime(dateStr);
   }
 
   async function handleCancel() {
@@ -90,11 +91,24 @@ export function TaskDetailContent({
   }
 
   async function handleDelete() {
+    const currentTask = task;
+    if (!currentTask) {
+      return;
+    }
     setDeleting(true);
     setActionError(null);
     try {
-      await deleteTask(taskId);
+      let deleteWorkspaceToo = false;
+      if (currentTask.workspace_kind === "FEATURE" && currentTask.workspace_task_count === 1) {
+        deleteWorkspaceToo = window.confirm(
+          `This is the last task in workspace "${currentTask.workspace_name}".\n\nDelete the workspace too?`
+        );
+      }
+      await deleteTask(taskId, {
+        delete_workspace_if_empty: deleteWorkspaceToo,
+      });
       await mutateCache((key: unknown) => Array.isArray(key) && key[0] === "tasks");
+      await mutateCache((key: unknown) => Array.isArray(key) && key[0] === "workspaces");
       await mutateCache(["task", taskId], undefined, { revalidate: false });
       onDeleted?.();
       if (!onDeleted) {
@@ -128,6 +142,11 @@ export function TaskDetailContent({
               {task.branch_name && (
                 <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-0.5 rounded">
                   {task.branch_name}
+                </span>
+              )}
+              {task.workspace_name && (
+                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                  Workspace: {task.workspace_name}
                 </span>
               )}
             </div>
@@ -169,6 +188,21 @@ export function TaskDetailContent({
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-2">Description</h2>
           <p className="text-sm text-gray-600 whitespace-pre-wrap">{task.description}</p>
+        </div>
+      )}
+
+      {task.workspace_name && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Workspace</h2>
+          <div className="space-y-2 text-sm text-gray-600">
+            <p>
+              {task.workspace_name}
+              {task.workspace_kind ? ` · ${task.workspace_kind}` : ""}
+            </p>
+            {task.branch_name && <p className="font-mono text-xs">{task.branch_name}</p>}
+            {task.workspace_path && <p className="font-mono text-xs">{task.workspace_path}</p>}
+            <p>{task.workspace_task_count} task(s) in this workspace</p>
+          </div>
         </div>
       )}
 

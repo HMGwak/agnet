@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from app.core.workflow import SymphonyWorkflowEngine
-from app.models import Repo, Task, TaskStatus
+from app.models import Repo, Task, TaskStatus, Workspace, WorkspaceKind
 
 
 class FakeWorkspaceManager:
@@ -11,12 +11,15 @@ class FakeWorkspaceManager:
         self,
         repo_path: Path,
         branch_name: str,
-        task_id: int,
+        workspace_id: int,
         repo_id: int | None = None,
+        repo_name: str | None = None,
+        workspace_name: str | None = None,
+        base_branch: str = "main",
     ) -> Path:
         if repo_id is None:
-            return Path(f"D:/workspaces/task-{task_id}")
-        return Path(f"D:/workspaces/repo-{repo_id}/task-{task_id}")
+            return Path(f"D:/workspaces/workspace-{workspace_id}")
+        return Path(f"D:/workspaces/repo-{repo_id}-demo/workspace-{workspace_id}-main")
 
     async def cleanup_worktree(self, repo_path: Path, workspace_path: Path) -> None:
         return None
@@ -24,7 +27,12 @@ class FakeWorkspaceManager:
     async def get_diff(self, workspace_path: Path, base_branch: str = "main") -> str:
         return "diff"
 
-    async def merge_to_main(self, repo_path: Path, branch_name: str) -> tuple[bool, str]:
+    async def merge_to_main(
+        self,
+        repo_path: Path,
+        branch_name: str,
+        base_branch: str = "main",
+    ) -> tuple[bool, str]:
         return True, "ok"
 
     async def ensure_repository(self, repo_path: Path, default_branch: str = "main") -> None:
@@ -67,9 +75,10 @@ class FakeEventSink:
 
 
 class FakeSession:
-    def __init__(self, task: Task, repo: Repo):
+    def __init__(self, task: Task, repo: Repo, workspace: Workspace):
         self.task = task
         self.repo = repo
+        self.workspace = workspace
         self.objects = []
 
     async def __aenter__(self):
@@ -83,6 +92,8 @@ class FakeSession:
             return self.task
         if model is Repo:
             return self.repo
+        if model is Workspace:
+            return self.workspace
         return None
 
     def add(self, obj):
@@ -93,12 +104,13 @@ class FakeSession:
 
 
 class FakeSessionFactory:
-    def __init__(self, task: Task, repo: Repo):
+    def __init__(self, task: Task, repo: Repo, workspace: Workspace):
         self.task = task
         self.repo = repo
+        self.workspace = workspace
 
     def __call__(self):
-        return FakeSession(self.task, self.repo)
+        return FakeSession(self.task, self.repo, self.workspace)
 
 
 @pytest.mark.asyncio
@@ -106,25 +118,40 @@ async def test_workflow_engine_moves_pending_task_to_plan_approval():
     task = Task(
         id=1,
         repo_id=2,
+        workspace_id=5,
         title="Implement feature",
         description="",
         status=TaskStatus.PENDING,
-        branch_name="task/1/implement-feature",
     )
     repo = Repo(id=2, name="demo", path="D:/repo", default_branch="main")
+    workspace = Workspace(
+        id=5,
+        repo_id=2,
+        name="Main",
+        kind=WorkspaceKind.MAIN,
+        base_branch="main",
+        branch_name="workspace/main/2",
+        workspace_path=None,
+        is_active=True,
+    )
     events = FakeEventSink()
     engine = SymphonyWorkflowEngine(
         FakeWorkspaceManager(),
         FakeAgentRunner(),
         events,
-        FakeSessionFactory(task, repo),
+        FakeSessionFactory(task, repo, workspace),
     )
 
     await engine.process_task(1)
 
     assert task.status == TaskStatus.AWAIT_PLAN_APPROVAL
     assert task.plan_text == "1. Do work"
-    assert task.workspace_path == "D:\\workspaces\\repo-2\\task-1" or task.workspace_path == "D:/workspaces/repo-2/task-1"
+    assert (
+        task.workspace_path
+        == "D:\\workspaces\\repo-2-demo\\workspace-5-main"
+        or task.workspace_path == "D:/workspaces/repo-2-demo/workspace-5-main"
+    )
+    assert workspace.workspace_path == task.workspace_path
     assert events.transitions == [
         (1, "PENDING", "PREPARING_WORKSPACE"),
         (1, "PREPARING_WORKSPACE", "PLANNING"),

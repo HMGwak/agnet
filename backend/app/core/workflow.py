@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.core.contracts import AgentRunner, EventSink, WorkspaceManager
-from app.models import Repo, Run, Task, TaskStatus
+from app.models import Repo, Run, Task, TaskStatus, Workspace
 
 
 class SymphonyWorkflowEngine:
@@ -34,16 +34,30 @@ class SymphonyWorkflowEngine:
         async with self.session_factory() as session:
             task = await session.get(Task, task_id)
             repo = await session.get(Repo, task.repo_id)
+            workspace = await session.get(Workspace, task.workspace_id) if task.workspace_id else None
 
             try:
                 task_input = self.codex.format_task_input(task.title, task.description)
 
                 if task.status == TaskStatus.PENDING:
                     await self._update_status(session, task, TaskStatus.PREPARING_WORKSPACE)
-                    workspace = await self.git.create_worktree(
-                        Path(repo.path), task.branch_name, task.id, repo.id
-                    )
-                    task.workspace_path = str(workspace)
+                    if workspace is None:
+                        raise RuntimeError("Workspace not found for task")
+
+                    workspace_path = Path(workspace.workspace_path) if workspace.workspace_path else None
+                    if workspace_path is None or not workspace_path.exists():
+                        workspace_path = await self.git.create_worktree(
+                            Path(repo.path),
+                            workspace.branch_name,
+                            workspace.id,
+                            repo.id,
+                            repo.name,
+                            workspace.name,
+                            workspace.base_branch,
+                        )
+                        workspace.workspace_path = str(workspace_path)
+                    task.workspace_path = str(workspace_path)
+                    task.branch_name = workspace.branch_name
                     await session.commit()
 
                     await self._update_status(session, task, TaskStatus.PLANNING)
@@ -103,7 +117,7 @@ class SymphonyWorkflowEngine:
                     session.add(run)
 
                     task.diff_text = await self.git.get_diff(
-                        Path(task.workspace_path), repo.default_branch
+                        Path(task.workspace_path), workspace.base_branch if workspace else repo.default_branch
                     )
                     await session.commit()
 
@@ -113,7 +127,9 @@ class SymphonyWorkflowEngine:
                 if task.status == TaskStatus.MERGING:
                     await self.events.log(task.id, "Merging to main...")
                     success, msg = await self.git.merge_to_main(
-                        Path(repo.path), task.branch_name
+                        Path(repo.path),
+                        workspace.branch_name if workspace else task.branch_name,
+                        workspace.base_branch if workspace else repo.default_branch,
                     )
                     run = Run(
                         task_id=task.id,
@@ -124,9 +140,6 @@ class SymphonyWorkflowEngine:
                     session.add(run)
                     if not success:
                         raise RuntimeError(f"Merge failed: {msg}")
-                    await self.git.cleanup_worktree(
-                        Path(repo.path), Path(task.workspace_path)
-                    )
                     await self._update_status(session, task, TaskStatus.DONE)
 
             except Exception as exc:
