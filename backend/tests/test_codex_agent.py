@@ -30,3 +30,13 @@ def test_build_exec_command_uses_exec_mode(monkeypatch):
         "never",
         "hello",
     ]
+
+
+def test_format_task_input_uses_title_when_description_is_blank():
+    assert CodexAgent.format_task_input("Build Tetris", "") == "Build Tetris"
+
+
+def test_format_task_input_includes_title_and_description():
+    assert CodexAgent.format_task_input("Build Tetris", "Use canvas and keyboard input") == (
+        "Title: Build Tetris\nDescription: Use canvas and keyboard input"
+    )

@@ -52,6 +52,17 @@ class CodexAgent:
             prompt,
         ]
 
+    @staticmethod
+    def format_task_input(task_title: str, task_description: str) -> str:
+        title = task_title.strip()
+        description = task_description.strip()
+
+        if not description:
+            return title
+        if not title or description == title:
+            return description
+        return f"Title: {title}\nDescription: {description}"
+
     async def cancel(self, task_id: int):
         proc = self._processes.pop(task_id, None)
         if proc and proc.returncode is None:

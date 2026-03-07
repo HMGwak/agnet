@@ -99,6 +99,7 @@ function TasksPageContent() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useWebSocket(undefined, (msg) => {
     if (msg.type === "task_state_changed" || msg.type === "task_deleted") {
@@ -117,6 +118,14 @@ function TasksPageContent() {
       setRepoId(repoFilter);
     }
   }, [repoFilter]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   async function handleCreateTask(e: React.FormEvent) {
     e.preventDefault();
@@ -221,7 +230,7 @@ function TasksPageContent() {
             ) : (
               queuedTasks.map((task) => (
                 <div key={task.id} className="w-72 shrink-0">
-                  <TaskCard task={task} onClick={setSelectedTaskId} />
+                  <TaskCard task={task} now={now} onClick={setSelectedTaskId} />
                 </div>
               ))
             )}
@@ -252,7 +261,12 @@ function TasksPageContent() {
                     </p>
                   ) : (
                     colTasks.map((task) => (
-                      <TaskCard key={task.id} task={task} onClick={setSelectedTaskId} />
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        now={now}
+                        onClick={setSelectedTaskId}
+                      />
                     ))
                   )}
                 </div>

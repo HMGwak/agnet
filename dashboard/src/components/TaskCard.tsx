@@ -1,15 +1,50 @@
-import type { TaskSummary } from "@/lib/types";
+import type { TaskStatus, TaskSummary } from "@/lib/types";
 import { StatusBadge } from "./StatusBadge";
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const minutes = Math.floor(diff / 60000);
+function parseTimestamp(dateStr: string): number {
+  return new Date(dateStr).getTime();
+}
+
+function formatRelativeTime(dateStr: string, now: number): string {
+  const diffMs = Math.max(0, now - parseTimestamp(dateStr));
+  const minutes = Math.floor(diffMs / 60000);
+
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
+
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) {
+    if (remainingMinutes === 0) return `${hours}h ago`;
+    return `${hours}h ${remainingMinutes}m ago`;
+  }
+
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  const remainingHours = hours % 24;
+  if (remainingHours === 0) return `${days}d ago`;
+  return `${days}d ${remainingHours}h ago`;
+}
+
+function formatElapsedTime(start: string, endMs: number): string {
+  const diffMs = Math.max(0, endMs - parseTimestamp(start));
+  const totalMinutes = Math.floor(diffMs / 60000);
+
+  if (totalMinutes < 1) return "< 1m";
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours < 24) {
+    return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return remainingHours === 0 ? `${days}d` : `${days}d ${remainingHours}h`;
+}
+
+function isTerminalStatus(status: TaskStatus): boolean {
+  return ["DONE", "FAILED", "CANCELLED", "NEEDS_ATTENTION"].includes(status);
 }
 
 function formatSchedule(dateStr: string): string {
@@ -23,11 +58,15 @@ function formatSchedule(dateStr: string): string {
 
 export function TaskCard({
   task,
+  now,
   onClick,
 }: {
   task: TaskSummary;
+  now: number;
   onClick?: (taskId: number) => void;
 }) {
+  const endTime = isTerminalStatus(task.status) ? parseTimestamp(task.updated_at) : now;
+
   return (
     <button
       type="button"
@@ -42,7 +81,11 @@ export function TaskCard({
         </div>
         <div className="mt-2 flex items-center justify-between">
           <StatusBadge status={task.status} />
-          <span className="text-xs text-gray-400">{timeAgo(task.created_at)}</span>
+          <span className="text-xs text-gray-400">{formatRelativeTime(task.created_at, now)}</span>
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500">
+          <span>Started {formatSchedule(task.created_at)}</span>
+          <span>Elapsed {formatElapsedTime(task.created_at, endTime)}</span>
         </div>
         {(task.scheduled_for || task.blocked_by_task_id) && (
           <div className="mt-2 space-y-1 text-[11px] text-gray-500">

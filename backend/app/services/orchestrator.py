@@ -45,6 +45,8 @@ class Orchestrator:
             repo = await session.get(Repo, task.repo_id)
 
             try:
+                task_input = self.codex.format_task_input(task.title, task.description)
+
                 # Phase A: PENDING -> AWAIT_PLAN_APPROVAL
                 if task.status == TaskStatus.PENDING:
                     await self._update_status(session, task, TaskStatus.PREPARING_WORKSPACE)
@@ -57,7 +59,7 @@ class Orchestrator:
                     await self._update_status(session, task, TaskStatus.PLANNING)
                     log_cb = lambda line: self.logger.log(task.id, line)  # noqa: E731
                     exit_code, output = await self.codex.generate_plan(
-                        Path(task.workspace_path), task.description,
+                        Path(task.workspace_path), task_input,
                         log_callback=log_cb, task_id=task.id,
                     )
                     run = Run(
@@ -78,7 +80,7 @@ class Orchestrator:
                     log_cb = lambda line: self.logger.log(task.id, line)  # noqa: E731
                     exit_code, output = await self.codex.implement_plan(
                         Path(task.workspace_path), task.plan_text,
-                        task.description, log_callback=log_cb, task_id=task.id,
+                        task_input, log_callback=log_cb, task_id=task.id,
                     )
                     run = Run(
                         task_id=task.id, phase="implement", exit_code=exit_code,
