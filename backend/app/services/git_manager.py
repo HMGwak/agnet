@@ -19,6 +19,53 @@ class GitManager:
         stdout, stderr = await proc.communicate()
         return proc.returncode or 0, stdout.decode(), stderr.decode()
 
+    async def ensure_repository(self, repo_path: Path, default_branch: str = "main"):
+        if (repo_path / ".git").exists():
+            return
+
+        rc, _, err = await self._run_git("init", "-b", default_branch, cwd=repo_path)
+        if rc != 0:
+            raise RuntimeError(f"Failed to initialize git repository: {err.strip()}")
+
+        await self._ensure_identity(repo_path)
+
+        placeholder_path = repo_path / ".gitkeep"
+        has_files_to_commit = any(path.name != ".git" for path in repo_path.iterdir())
+        if not has_files_to_commit:
+            placeholder_path.write_text("", encoding="utf-8")
+
+        rc, _, err = await self._run_git("add", ".", cwd=repo_path)
+        if rc != 0:
+            raise RuntimeError(f"Failed to stage initial repository files: {err.strip()}")
+
+        rc, out, err = await self._run_git("status", "--porcelain", cwd=repo_path)
+        if rc != 0:
+            raise RuntimeError(f"Failed to inspect repository status: {err.strip()}")
+
+        if out.strip():
+            rc, _, err = await self._run_git(
+                "commit", "-m", "Initial commit", cwd=repo_path
+            )
+            if rc != 0:
+                raise RuntimeError(f"Failed to create initial commit: {err.strip()}")
+
+    async def _ensure_identity(self, repo_path: Path):
+        rc, out, _ = await self._run_git("config", "user.name", cwd=repo_path)
+        if rc != 0 or not out.strip():
+            rc, _, err = await self._run_git(
+                "config", "user.name", "AI Dev Automation", cwd=repo_path
+            )
+            if rc != 0:
+                raise RuntimeError(f"Failed to configure git user.name: {err.strip()}")
+
+        rc, out, _ = await self._run_git("config", "user.email", cwd=repo_path)
+        if rc != 0 or not out.strip():
+            rc, _, err = await self._run_git(
+                "config", "user.email", "ai-dev-automation@example.invalid", cwd=repo_path
+            )
+            if rc != 0:
+                raise RuntimeError(f"Failed to configure git user.email: {err.strip()}")
+
     async def create_worktree(self, repo_path: Path, branch_name: str, task_id: int) -> Path:
         workspace_path = self.workspaces_dir / f"task-{task_id}"
 

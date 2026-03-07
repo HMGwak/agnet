@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,12 +40,23 @@ async def pick_repo_path():
 
 
 @router.post("", response_model=RepoResponse, status_code=201)
-async def create_repo(body: RepoCreate, db: AsyncSession = Depends(get_db)):
+async def create_repo(
+    body: RepoCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     repo_path = Path(body.path)
     if not repo_path.is_dir():
         raise HTTPException(status_code=400, detail="Path does not exist or is not a directory")
+
     if not (repo_path / ".git").exists():
-        raise HTTPException(status_code=400, detail="Path is not a git repository")
+        try:
+            await request.app.state.orchestrator.git.ensure_repository(
+                repo_path,
+                body.default_branch,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     repo = Repo(name=body.name, path=str(repo_path), default_branch=body.default_branch)
     db.add(repo)

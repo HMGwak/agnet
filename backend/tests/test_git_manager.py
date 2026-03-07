@@ -86,3 +86,41 @@ async def test_create_worktree_cleans_existing_workspace_dir(temp_repo, tmp_path
 
     assert ws.exists()
     assert not (ws / "stale.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_ensure_repository_initializes_non_git_folder_with_existing_files(tmp_path):
+    repo = tmp_path / "plain-folder"
+    repo.mkdir()
+    (repo / "app.py").write_text("print('hello')", encoding="utf-8")
+
+    gm = GitManager(tmp_path / "workspaces")
+    await gm.ensure_repository(repo, "main")
+
+    assert (repo / ".git").exists()
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"], cwd=repo, check=True, capture_output=True, text=True
+    )
+    assert branch.stdout.strip() == "main"
+
+    history = subprocess.run(
+        ["git", "log", "--oneline"], cwd=repo, check=True, capture_output=True, text=True
+    )
+    assert "Initial commit" in history.stdout
+
+
+@pytest.mark.asyncio
+async def test_ensure_repository_bootstraps_empty_folder(tmp_path):
+    repo = tmp_path / "empty-folder"
+    repo.mkdir()
+
+    gm = GitManager(tmp_path / "workspaces")
+    await gm.ensure_repository(repo, "main")
+
+    assert (repo / ".git").exists()
+    assert (repo / ".gitkeep").exists()
+
+    history = subprocess.run(
+        ["git", "log", "--oneline"], cwd=repo, check=True, capture_output=True, text=True
+    )
+    assert "Initial commit" in history.stdout
