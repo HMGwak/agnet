@@ -6,6 +6,7 @@ from app.adapters import AppEventSink, CodexRunner, GitManager, SQLiteStore
 from app.api.websocket import ws_manager
 from app.bootstrap.codex_sidecar import CodexSidecarManager
 from app.config import settings
+from app.core.codex_project_config import CodexProjectConfig
 from app.core.project_policy import ProjectPolicy, load_project_policy
 from app.core.prompt_library import PromptLibrary
 from app.core.repo_service import RepoService
@@ -25,6 +26,7 @@ class AppRuntime:
     codex: CodexRunner
     policy: ProjectPolicy
     prompts: PromptLibrary
+    codex_project: CodexProjectConfig
     task_logger: TaskLogger
     event_sink: AppEventSink
     store: SQLiteStore
@@ -47,6 +49,7 @@ class AppRuntime:
 def create_runtime() -> AppRuntime:
     policy = load_project_policy(settings.CODEX_POLICY_FILE)
     prompts = PromptLibrary.load_from_directory(settings.CODEX_PROMPTS_DIR)
+    codex_project = CodexProjectConfig.load_from_file(settings.CODEX_PROJECT_CONFIG_FILE)
     git_mgr = GitManager(settings.WORKSPACES_DIR)
     sidecar = CodexSidecarManager(settings)
     codex = CodexRunner(
@@ -57,6 +60,7 @@ def create_runtime() -> AppRuntime:
         run_timeout_s=settings.CODEX_RUN_TIMEOUT_S,
         prompt_library=prompts,
         policy=policy,
+        project_config=codex_project,
     )
     task_logger = TaskLogger(settings.LOGS_DIR)
     task_logger.set_ws_manager(ws_manager)
@@ -75,6 +79,7 @@ def create_runtime() -> AppRuntime:
         codex=codex,
         policy=policy,
         prompts=prompts,
+        codex_project=codex_project,
         task_logger=task_logger,
         event_sink=event_sink,
         store=store,

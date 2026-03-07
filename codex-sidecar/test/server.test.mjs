@@ -6,7 +6,14 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createSidecarServer, parseArgs, buildAllowlistEnv, hasProjectAuth } from "../server.mjs";
+import {
+  buildAllowlistEnv,
+  buildCodexOptions,
+  buildThreadOptions,
+  createSidecarServer,
+  hasProjectAuth,
+  parseArgs,
+} from "../server.mjs";
 
 async function makeFixtureAuth() {
   const dir = await mkdtemp(path.join(os.tmpdir(), "codex-sidecar-"));
@@ -49,10 +56,14 @@ test("parseArgs parses --runtime-home and --port", () => {
 
 test("buildAllowlistEnv contains only allowlisted variables", () => {
   const originalExtra = process.env.EXTRA_VAR;
+  const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
+  const originalCodexApiKey = process.env.CODEX_API_KEY;
   const originalPath = process.env.PATH;
   const originalHome = process.env.HOME;
   const originalSystemRoot = process.env.SystemRoot;
   process.env.EXTRA_VAR = "should-not-pass";
+  process.env.OPENAI_API_KEY = "should-not-pass";
+  process.env.CODEX_API_KEY = "should-not-pass";
   process.env.PATH = "/bin";
   process.env.SystemRoot = "C:\\Windows";
 
@@ -65,11 +76,23 @@ test("buildAllowlistEnv contains only allowlisted variables", () => {
   assert.match(env.LOCALAPPDATA, /AppData[\\/]Local$/);
   assert.equal(env.SystemRoot, "C:\\Windows");
   assert.equal(env.EXTRA_VAR, undefined);
+  assert.equal(env.OPENAI_API_KEY, undefined);
+  assert.equal(env.CODEX_API_KEY, undefined);
 
   if (originalExtra === undefined) {
     delete process.env.EXTRA_VAR;
   } else {
     process.env.EXTRA_VAR = originalExtra;
+  }
+  if (originalOpenAiApiKey === undefined) {
+    delete process.env.OPENAI_API_KEY;
+  } else {
+    process.env.OPENAI_API_KEY = originalOpenAiApiKey;
+  }
+  if (originalCodexApiKey === undefined) {
+    delete process.env.CODEX_API_KEY;
+  } else {
+    process.env.CODEX_API_KEY = originalCodexApiKey;
   }
   if (originalPath === undefined) {
     delete process.env.PATH;
@@ -86,6 +109,53 @@ test("buildAllowlistEnv contains only allowlisted variables", () => {
   } else {
     process.env.SystemRoot = originalSystemRoot;
   }
+});
+
+test("buildCodexOptions forwards project config overrides", () => {
+  const options = buildCodexOptions(
+    {
+      config: {
+        model: "gpt-5.4",
+        model_instructions_file: "/tmp/planner.md",
+        features: { multi_agent: true },
+      },
+    },
+    "/isolation",
+    "/runtime/codex.js"
+  );
+
+  assert.equal(options.codexPathOverride, "/runtime/codex.js");
+  assert.equal(options.env.CODEX_HOME, "/isolation");
+  assert.deepEqual(options.config, {
+    model: "gpt-5.4",
+    model_instructions_file: "/tmp/planner.md",
+    features: { multi_agent: true },
+  });
+});
+
+test("buildThreadOptions leaves reasoning effort unset unless provided", () => {
+  const plannerOptions = buildThreadOptions(
+    {
+      model: "gpt-5.4",
+      sandboxMode: "workspace-write",
+      approvalPolicy: "never",
+      workingDirectory: "/repo",
+    },
+    "gpt-5.4"
+  );
+  assert.equal(plannerOptions.modelReasoningEffort, undefined);
+
+  const explicitOptions = buildThreadOptions(
+    {
+      model: "gpt-5.4",
+      sandboxMode: "workspace-write",
+      approvalPolicy: "never",
+      workingDirectory: "/repo",
+      modelReasoningEffort: "high",
+    },
+    "gpt-5.4"
+  );
+  assert.equal(explicitOptions.modelReasoningEffort, "high");
 });
 
 test("hasProjectAuth detects project-local auth cache", async () => {

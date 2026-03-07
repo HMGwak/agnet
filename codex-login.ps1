@@ -34,6 +34,9 @@ $previous = @{
     APPDATA = $env:APPDATA
     LOCALAPPDATA = $env:LOCALAPPDATA
     CODEX_HOME = $env:CODEX_HOME
+    OPENAI_API_KEY = $env:OPENAI_API_KEY
+    CODEX_API_KEY = $env:CODEX_API_KEY
+    OPENAI_BASE_URL = $env:OPENAI_BASE_URL
 }
 
 try {
@@ -42,6 +45,9 @@ try {
     $env:APPDATA = $appData
     $env:LOCALAPPDATA = $localAppData
     $env:CODEX_HOME = $codexHome
+    Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
+    Remove-Item Env:CODEX_API_KEY -ErrorAction SilentlyContinue
+    Remove-Item Env:OPENAI_BASE_URL -ErrorAction SilentlyContinue
 
     & $codexCmd login --device-auth
 } finally {

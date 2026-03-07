@@ -37,6 +37,13 @@ Thumbs.db
 .claude/
 .omx/
 .codex/*
+!.codex/config.toml
+!.codex/agents/
+!.codex/agents/**
+!.codex/instructions/
+!.codex/instructions/**
+!.codex/rules/
+!.codex/rules/**
 !.codex/environments/
 !.codex/environments/**
 .codex-sdk/*

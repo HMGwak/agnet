@@ -7,6 +7,7 @@ from pytest_httpx import HTTPXMock
 
 from app.adapters.codex_runner import CodexRunner
 from app.bootstrap.codex_sidecar import CodexSidecarManager
+from app.core.codex_project_config import CodexProjectConfig
 from app.core.project_policy import ProjectPolicy
 from app.core.prompt_library import PromptLibrary
 
@@ -50,6 +51,60 @@ def make_prompts():
     )
 
 
+def make_project_config(tmp_path: Path) -> CodexProjectConfig:
+    project_dir = tmp_path / ".codex"
+    agent_dir = project_dir / "agents"
+    instructions_dir = project_dir / "instructions"
+    agent_dir.mkdir(parents=True)
+    instructions_dir.mkdir()
+
+    agent_files = {}
+    base_config = {
+        "model": "gpt-5.4",
+        "approval_policy": "never",
+        "sandbox_mode": "workspace-write",
+        "features": {"multi_agent": False},
+        "agents": {},
+    }
+    for name, multi_agent in (
+        ("intake", False),
+        ("planner", False),
+        ("critic", False),
+        ("executor", True),
+        ("tester", False),
+        ("reviewer", False),
+    ):
+        instruction_file = instructions_dir / f"{name}.md"
+        instruction_file.write_text(f"{name} instructions", encoding="utf-8")
+        agent_file = agent_dir / f"{name}.toml"
+        agent_file.write_text(
+            "\n".join(
+                [
+                    'model = "gpt-5.4"',
+                    'approval_policy = "never"',
+                    'sandbox_mode = "workspace-write"',
+                    f'model_instructions_file = "../instructions/{name}.md"',
+                    "",
+                    "[features]",
+                    f"multi_agent = {'true' if multi_agent else 'false'}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        agent_files[name] = agent_file.resolve()
+        base_config["agents"][name] = {"config_file": str(agent_file.resolve())}
+
+    config_path = project_dir / "config.toml"
+    config_path.write_text('model = "gpt-5.4"\n', encoding="utf-8")
+    return CodexProjectConfig(
+        project_dir=project_dir.resolve(),
+        config_path=config_path.resolve(),
+        base_config=base_config,
+        agent_files=agent_files,
+    )
+
+
 def test_format_task_input_uses_title_when_description_is_blank():
     assert CodexRunner.format_task_input("Build Tetris", "") == "Build Tetris"
 
@@ -70,6 +125,7 @@ async def test_run_codex_maps_sidecar_events(httpx_mock: HTTPXMock, tmp_path):
         run_timeout_s=300,
         prompt_library=make_prompts(),
         policy=make_policy(),
+        project_config=make_project_config(tmp_path),
     )
     events = "\n\n".join(
         [
@@ -123,6 +179,7 @@ async def test_run_intake_returns_structured_payload(httpx_mock: HTTPXMock, tmp_
         run_timeout_s=300,
         prompt_library=make_prompts(),
         policy=make_policy(),
+        project_config=make_project_config(tmp_path),
     )
     httpx_mock.add_response(
         method="POST",
@@ -151,10 +208,17 @@ async def test_run_intake_returns_structured_payload(httpx_mock: HTTPXMock, tmp_
 
     assert payload["draft"]["title"] == "Build Tetris"
     assert payload["needs_confirmation"] is True
+    post_request = httpx_mock.get_requests()[0]
+    body = json.loads(post_request.content.decode("utf-8"))
+    instructions_path = Path(body["config"]["model_instructions_file"])
+    assert instructions_path.parent.name == ".generated"
+    assert instructions_path.name == "intake.md"
+    assert "intake instructions" in instructions_path.read_text(encoding="utf-8")
+    assert body["config"]["features"]["multi_agent"] is False
 
 
 @pytest.mark.asyncio
-async def test_cancel_posts_remote_cancel(httpx_mock: HTTPXMock):
+async def test_cancel_posts_remote_cancel(httpx_mock: HTTPXMock, tmp_path):
     runner = CodexRunner(
         base_url="http://127.0.0.1:8765",
         model="gpt-5.4",
@@ -163,6 +227,7 @@ async def test_cancel_posts_remote_cancel(httpx_mock: HTTPXMock):
         run_timeout_s=300,
         prompt_library=make_prompts(),
         policy=make_policy(),
+        project_config=make_project_config(tmp_path),
     )
     runner._task_runs[5] = "run-5"
     httpx_mock.add_response(
@@ -187,6 +252,7 @@ async def test_generate_plan_uses_project_prompt_library(httpx_mock: HTTPXMock, 
         run_timeout_s=300,
         prompt_library=make_prompts(),
         policy=make_policy(),
+        project_config=make_project_config(tmp_path),
     )
     events = "\n\n".join(
         [
@@ -219,6 +285,11 @@ async def test_generate_plan_uses_project_prompt_library(httpx_mock: HTTPXMock, 
     post_request = httpx_mock.get_requests()[0]
     body = json.loads(post_request.content.decode("utf-8"))
     assert body["prompt"] == "PLAN::Build Tetris"
+    instructions_path = Path(body["config"]["model_instructions_file"])
+    assert instructions_path.parent.name == ".generated"
+    assert instructions_path.name == "planner.md"
+    assert "planner instructions" in instructions_path.read_text(encoding="utf-8")
+    assert body["config"]["features"]["multi_agent"] is False
 
 
 def test_sidecar_manager_allowlist_env_does_not_forward_global_auth(tmp_path, monkeypatch):

@@ -127,6 +127,31 @@ function createRunRecord(payload) {
   };
 }
 
+function buildCodexOptions(payload, runtimeHome, codexPathOverride) {
+  const options = {
+    codexPathOverride,
+    env: buildAllowlistEnv(runtimeHome),
+  };
+  if (payload.config && typeof payload.config === "object" && !Array.isArray(payload.config)) {
+    options.config = payload.config;
+  }
+  return options;
+}
+
+export function buildThreadOptions(payload, fallbackModel) {
+  const options = {
+    model: payload.model || fallbackModel,
+    sandboxMode: payload.sandboxMode || "workspace-write",
+    workingDirectory: payload.workingDirectory || process.cwd(),
+    approvalPolicy: payload.approvalPolicy || "never",
+    skipGitRepoCheck: true,
+  };
+  if (payload.modelReasoningEffort) {
+    options.modelReasoningEffort = payload.modelReasoningEffort;
+  }
+  return options;
+}
+
 function formatEvent(event) {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
@@ -134,18 +159,8 @@ function formatEvent(event) {
 async function runCodexRun(runRecord, payload, runtimeHome, fallbackModel) {
   const { Codex } = await import("@openai/codex-sdk");
   const localCodexPath = await resolveLocalCodexPath();
-  const codex = new Codex({
-    codexPathOverride: localCodexPath,
-    env: buildAllowlistEnv(runtimeHome),
-  });
-  const thread = codex.startThread({
-    model: payload.model || fallbackModel,
-    sandboxMode: payload.sandboxMode || "workspace-write",
-    workingDirectory: payload.workingDirectory || process.cwd(),
-    approvalPolicy: payload.approvalPolicy || "never",
-    modelReasoningEffort: payload.modelReasoningEffort || "medium",
-    skipGitRepoCheck: true,
-  });
+  const codex = new Codex(buildCodexOptions(payload, runtimeHome, localCodexPath));
+  const thread = codex.startThread(buildThreadOptions(payload, fallbackModel));
   const streamed = await thread.runStreamed(runRecord.prompt, {
     outputSchema: runRecord.outputSchema,
     signal: runRecord.abortController.signal,
@@ -314,9 +329,8 @@ export function createSidecarServer({
       }
       try {
         const { Codex } = await import("@openai/codex-sdk");
-        const codex = new Codex({
-          env: buildAllowlistEnv(runtimeHome),
-        });
+        const localCodexPath = await resolveLocalCodexPath();
+        const codex = new Codex(buildCodexOptions(body, runtimeHome, localCodexPath));
         const thread = codex.startThread({
           model: body.model || DEFAULT_MODEL,
           sandboxMode: body.sandboxMode || "workspace-write",
@@ -376,6 +390,8 @@ export async function startSidecar(argv = process.argv.slice(2)) {
   const actualPort = await start();
   return { status: "started", port: actualPort };
 }
+
+export { buildCodexOptions };
 
 async function resolveLocalCodexPath() {
   const candidates = [

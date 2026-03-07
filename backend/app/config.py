@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     CODEX_SDK_HOME: Path = Path("")
     CODEX_POLICY_FILE: Path = Path("")
     CODEX_PROMPTS_DIR: Path = Path("")
+    CODEX_PROJECT_DIR: Path = Path("")
 
     def model_post_init(self, __context):
         if not self.DATABASE_URL:
@@ -70,6 +71,17 @@ class Settings(BaseSettings):
                     break
             else:
                 self.CODEX_PROMPTS_DIR = self.BASE_DIR / "backend" / "app" / "prompts"
+        if self.CODEX_PROJECT_DIR == Path(""):
+            for candidate in (
+                self.BASE_DIR / ".codex",
+                self.BASE_DIR / "runtime" / ".codex",
+                self.BASE_DIR / "resources" / "runtime" / ".codex",
+            ):
+                if candidate.exists():
+                    self.CODEX_PROJECT_DIR = candidate
+                    break
+            else:
+                self.CODEX_PROJECT_DIR = self.BASE_DIR / ".codex"
 
     @property
     def CODEX_SIDECAR_ENTRYPOINT(self) -> Path:
@@ -82,6 +94,10 @@ class Settings(BaseSettings):
     @property
     def CODEX_SDK_CONFIG_FILE(self) -> Path:
         return self.CODEX_SDK_HOME / "config.toml"
+
+    @property
+    def CODEX_PROJECT_CONFIG_FILE(self) -> Path:
+        return self.CODEX_PROJECT_DIR / "config.toml"
 
 
 settings = Settings()

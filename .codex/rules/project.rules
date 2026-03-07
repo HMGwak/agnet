@@ -1,0 +1,5 @@
+Never run destructive git commands such as `git reset --hard`, `git clean -fd`, or `git checkout --` unless the user explicitly asks.
+Never push or merge automatically.
+Do not implement new feature work directly on the main workspace.
+Follow the project quality pipeline: plan, critique, implement, test, review, then human merge approval.
+Prefer Bash-style shell commands. Use PowerShell only for Windows-specific needs.

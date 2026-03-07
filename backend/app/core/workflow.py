@@ -130,6 +130,7 @@ class SymphonyWorkflowEngine:
         exit_code, output = await self.codex.generate_plan(
             workspace_path,
             task_input,
+            agent_name="planner",
             log_callback=log_cb,
             task_id=task.id,
             repo_name=repo.name,
@@ -166,6 +167,7 @@ class SymphonyWorkflowEngine:
                 workspace_path,
                 plan_text,
                 task_input,
+                agent_name="critic",
                 log_callback=log_cb,
                 task_id=task.id,
                 repo_name=repo.name,
@@ -203,6 +205,7 @@ class SymphonyWorkflowEngine:
             workspace_path,
             task.plan_text or "",
             task_input,
+            agent_name="executor",
             log_callback=log_cb,
             task_id=task.id,
             repo_name=repo.name,
@@ -228,6 +231,7 @@ class SymphonyWorkflowEngine:
         )
         exit_code, test_output = await self.codex.run_tests(
             workspace_path,
+            agent_name="tester",
             task_description=task_input,
             plan_text=task.plan_text or "",
             log_callback=log_cb,
@@ -270,6 +274,7 @@ class SymphonyWorkflowEngine:
                 task_input,
                 test_output,
                 task.diff_text or "",
+                agent_name="reviewer",
                 log_callback=log_cb,
                 task_id=task.id,
                 repo_name=repo.name,

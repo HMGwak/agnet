@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from app.core.codex_project_config import CodexProjectConfig
 from app.core.project_policy import ProjectPolicy
 from app.core.prompt_library import PromptLibrary
 
@@ -22,6 +23,7 @@ class CodexRunner:
         run_timeout_s: int,
         prompt_library: PromptLibrary,
         policy: ProjectPolicy,
+        project_config: CodexProjectConfig,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -30,6 +32,7 @@ class CodexRunner:
         self.run_timeout_ms = run_timeout_s * 1000
         self.prompts = prompt_library
         self.policy = policy
+        self.project_config = project_config
         self._task_runs: dict[int, str] = {}
         self._lock = asyncio.Lock()
 
@@ -61,6 +64,7 @@ class CodexRunner:
         log_callback=None,
         task_id: int | None = None,
         phase: str = "generic",
+        agent_name: str | None = None,
         **_ignored,
     ) -> tuple[int, str]:
         payload = {
@@ -72,6 +76,8 @@ class CodexRunner:
             "approvalPolicy": self.approval_policy,
             "timeoutMs": self.run_timeout_ms,
         }
+        if agent_name:
+            payload["config"] = self.project_config.build_agent_config(agent_name)
 
         run_timeout = httpx.Timeout(connect=30.0, read=None, write=30.0, pool=30.0)
         async with httpx.AsyncClient(base_url=self.base_url, timeout=run_timeout) as client:
@@ -138,6 +144,7 @@ class CodexRunner:
             "approvalPolicy": self.approval_policy,
             "timeoutMs": self.run_timeout_ms,
             "outputSchema": output_schema,
+            "config": self.project_config.build_agent_config("intake"),
         }
         async with httpx.AsyncClient(base_url=self.base_url, timeout=120.0) as client:
             response = await client.post("/intake", json=payload)
@@ -164,6 +171,7 @@ class CodexRunner:
     async def generate_plan(
         self, workspace_path: Path, task_description: str, **kw
     ) -> tuple[int, str]:
+        kw.setdefault("agent_name", "planner")
         prompt = self.prompts.render(
             "plan",
             task_input=task_description,
@@ -178,6 +186,7 @@ class CodexRunner:
         task_description: str,
         **kw,
     ) -> tuple[int, str]:
+        kw.setdefault("agent_name", "critic")
         prompt = self.prompts.render(
             "critique",
             task_input=task_description,
@@ -193,6 +202,7 @@ class CodexRunner:
         task_description: str,
         **kw,
     ) -> tuple[int, str]:
+        kw.setdefault("agent_name", "executor")
         prompt = self.prompts.render(
             "implement",
             task_input=task_description,
@@ -209,6 +219,7 @@ class CodexRunner:
         task_description: str = "",
         **kw,
     ) -> tuple[int, str]:
+        kw.setdefault("agent_name", "tester")
         prompt = self.prompts.render(
             "test",
             task_input=task_description,
@@ -226,6 +237,7 @@ class CodexRunner:
         diff_text: str,
         **kw,
     ) -> tuple[int, str]:
+        kw.setdefault("agent_name", "reviewer")
         prompt = self.prompts.render(
             "review",
             task_input=task_description,
