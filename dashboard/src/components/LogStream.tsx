@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { getTaskLogs } from "@/lib/api";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 export function LogStream({ taskId }: { taskId: number }) {
   const [lines, setLines] = useState<string[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 
@@ -37,25 +39,34 @@ export function LogStream({ taskId }: { taskId: number }) {
 
   return (
     <div className="bg-gray-900 rounded-lg">
-      <div className="px-3 py-2 border-b border-gray-700 flex items-center justify-between">
-        <span className="text-xs font-medium text-gray-400">Logs</span>
-        <span className="text-xs text-gray-500">{lines.length} lines</span>
-      </div>
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="p-3 max-h-[400px] overflow-y-auto font-mono text-xs text-gray-300 space-y-0.5"
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        className="flex w-full items-center justify-between px-3 py-2 text-left border-b border-gray-700"
       >
-        {lines.length === 0 ? (
-          <p className="text-gray-500">No logs yet.</p>
-        ) : (
-          lines.map((line, i) => (
-            <div key={i} className="whitespace-pre-wrap break-all">
-              {line}
-            </div>
-          ))
-        )}
-      </div>
+        <span className="text-xs font-medium text-gray-400">Logs</span>
+        <span className="inline-flex items-center gap-2 text-xs text-gray-500">
+          {lines.length} lines
+          {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </span>
+      </button>
+      {isOpen && (
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="p-3 max-h-[400px] overflow-y-auto font-mono text-xs text-gray-300 space-y-0.5"
+        >
+          {lines.length === 0 ? (
+            <p className="text-gray-500">No logs yet.</p>
+          ) : (
+            lines.map((line, i) => (
+              <div key={i} className="whitespace-pre-wrap break-all">
+                {line}
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }

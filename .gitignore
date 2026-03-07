@@ -36,6 +36,9 @@ Thumbs.db
 # Claude / internal tools
 .claude/
 .omx/
+.codex/*
+!.codex/environments/
+!.codex/environments/**
 
 # Test repos (local only)
 repos/*

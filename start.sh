@@ -4,6 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$SCRIPT_DIR/backend"
 DASHBOARD_DIR="$SCRIPT_DIR/dashboard"
+PROJECT_CODEX_HOME="$SCRIPT_DIR/.codex"
 VENV_PYTHON=""
 
 kill_port() {
@@ -41,6 +42,18 @@ if ! command -v npm >/dev/null 2>&1; then
   echo "Install Node.js LTS and reopen the terminal." >&2
   exit 1
 fi
+
+if ! command -v codex >/dev/null 2>&1; then
+  echo "codex is not installed or not on PATH." >&2
+  echo "Install Codex CLI and reopen the terminal." >&2
+  exit 1
+fi
+
+mkdir -p "$PROJECT_CODEX_HOME"
+if [ ! -f "$PROJECT_CODEX_HOME/auth.json" ] && [ -f "$HOME/.codex/auth.json" ] && [ "$PROJECT_CODEX_HOME" != "$HOME/.codex" ]; then
+  cp "$HOME/.codex/auth.json" "$PROJECT_CODEX_HOME/auth.json"
+fi
+export CODEX_HOME="$PROJECT_CODEX_HOME"
 
 echo "Stopping existing processes on ports 8001 and 3000..."
 kill_port 8001
@@ -83,6 +96,7 @@ FRONTEND_PID=$!
 echo "Backend: http://localhost:8001"
 echo "Dashboard: http://localhost:3000"
 echo "Backend Python: $VENV_PYTHON"
+echo "Codex home: $CODEX_HOME"
 echo "Press Ctrl+C to stop"
 
 trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null" EXIT

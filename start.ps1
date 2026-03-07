@@ -8,6 +8,7 @@ $backendOutLog = Join-Path $logsDir "backend.out.log"
 $backendErrLog = Join-Path $logsDir "backend.err.log"
 $dashboardOutLog = Join-Path $logsDir "dashboard.out.log"
 $dashboardErrLog = Join-Path $logsDir "dashboard.err.log"
+$projectCodexHome = Join-Path $scriptDir ".codex"
 $backendPort = 8001
 $dashboardPort = 3000
 
@@ -50,10 +51,30 @@ function Reset-LogFile {
     throw "Failed to reset log file after waiting for release: $Path"
 }
 
+function Initialize-CodexHome {
+    param(
+        [string]$ProjectHome
+    )
+
+    $globalCodexHome = Join-Path $HOME ".codex"
+    New-Item -ItemType Directory -Force -Path $ProjectHome | Out-Null
+
+    $projectAuth = Join-Path $ProjectHome "auth.json"
+    $globalAuth = Join-Path $globalCodexHome "auth.json"
+    if (-not (Test-Path $projectAuth) -and (Test-Path $globalAuth) -and ($ProjectHome -ne $globalCodexHome)) {
+        Copy-Item -Path $globalAuth -Destination $projectAuth
+    }
+
+    $env:CODEX_HOME = $ProjectHome
+}
+
 Write-Host "Starting AI Dev Automation Dashboard..."
 
 Require-Command -Name "uv" -InstallHint "Install it with: winget install --id=astral-sh.uv -e"
 Require-Command -Name "npm" -InstallHint "Install Node.js LTS from https://nodejs.org/ and reopen the terminal."
+Require-Command -Name "codex" -InstallHint "Install Codex CLI and reopen the terminal."
+
+Initialize-CodexHome -ProjectHome $projectCodexHome
 
 Write-Host "Stopping existing processes on ports $backendPort and $dashboardPort..."
 Stop-PortProcess -Port $backendPort
@@ -111,6 +132,7 @@ $frontend = Start-Process `
 Write-Host ""
 Write-Host "Backend:   http://localhost:$backendPort"
 Write-Host "Dashboard: http://localhost:$dashboardPort"
+Write-Host "Codex home: $env:CODEX_HOME"
 Write-Host "Backend logs:   $backendOutLog / $backendErrLog"
 Write-Host "Dashboard logs: $dashboardOutLog / $dashboardErrLog"
 Write-Host "Press Ctrl+C to stop."
