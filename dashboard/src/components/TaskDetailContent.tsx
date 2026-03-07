@@ -9,7 +9,6 @@ import { useTask } from "@/hooks/useTasks";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { cancelTask, deleteTask, resumeTask } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
-import { PlanApproval } from "@/components/PlanApproval";
 import { MergeApproval } from "@/components/MergeApproval";
 import { DiffViewer } from "@/components/DiffViewer";
 import { LogStream } from "@/components/LogStream";
@@ -266,15 +265,11 @@ export function TaskDetailContent({
         </div>
       )}
 
-      {task.status === "AWAIT_PLAN_APPROVAL" && task.plan_text && (
-        <PlanApproval taskId={task.id} planText={task.plan_text} onApproved={() => mutate()} />
-      )}
-
       {task.status === "AWAIT_MERGE_APPROVAL" && task.diff_text && (
         <MergeApproval taskId={task.id} diffText={task.diff_text} onApproved={() => mutate()} />
       )}
 
-      {task.plan_text && task.status !== "AWAIT_PLAN_APPROVAL" && (
+      {task.plan_text && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-2">Plan</h2>
           <pre className="text-xs text-gray-600 overflow-auto max-h-[300px] whitespace-pre-wrap">

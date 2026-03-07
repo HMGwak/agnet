@@ -39,6 +39,8 @@ Thumbs.db
 .codex/*
 !.codex/environments/
 !.codex/environments/**
+.codex-sdk/*
+!.codex-sdk/.gitkeep
 
 # Test repos (local only)
 repos/*

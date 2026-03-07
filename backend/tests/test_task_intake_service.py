@@ -1,8 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
+from app.core.project_policy import ProjectPolicy
 from app.core.task_intake import TaskIntakeService
 from app.models import TaskStatus, WorkspaceKind
 from app.schemas import TaskIntakeRequest, TaskIntakeTurn
@@ -58,37 +60,56 @@ class FakeStore:
 
 
 class FakeCodex:
-    def __init__(self, output: str, exit_code: int = 0):
-        self.output = output
-        self.exit_code = exit_code
+    def __init__(self, payload, error: Exception | None = None):
+        self.payload = payload
+        self.error = error
         self.calls = []
 
-    async def run_codex(self, prompt: str, cwd, **kwargs):
+    async def run_intake(self, prompt: str, cwd, output_schema):
         self.calls.append((prompt, str(cwd)))
-        return self.exit_code, self.output
+        if self.error is not None:
+            raise self.error
+        return self.payload
+
+
+def make_policy():
+    return ProjectPolicy(
+        plan_required=True,
+        critique_required=True,
+        critique_max_rounds=2,
+        test_fix_loops=2,
+        review_required=True,
+        merge_human_approval=True,
+        allow_user_override=False,
+        allow_repo_override=False,
+        main_allow_feature_work=False,
+        main_allow_hotfix=True,
+        main_allow_plan_review=True,
+        auto_fork_feature_workspace_from_main=True,
+        hotfix_keywords=("fix", "bug"),
+        plan_review_keywords=("plan", "review"),
+    )
 
 
 @pytest.mark.asyncio
 async def test_analyze_uses_repo_scoped_context():
     codex = FakeCodex(
-        """
         {
-          "draft": {
-            "workspace_mode": "existing",
-            "workspace_id": 11,
-            "new_workspace_name": null,
-            "title": "Fix score rendering",
-            "description": "Continue the score rendering fix in the existing feature workspace.",
-            "blocked_by_task_id": null,
-            "scheduled_for": null
-          },
-          "questions": [],
-          "needs_confirmation": true,
-          "notes": ["Continuing the existing score workspace."]
+            "draft": {
+                "workspace_mode": "existing",
+                "workspace_id": 11,
+                "new_workspace_name": None,
+                "title": "Fix score rendering",
+                "description": "Continue the score rendering fix in the existing feature workspace.",
+                "blocked_by_task_id": None,
+                "scheduled_for": None,
+            },
+            "questions": [],
+            "needs_confirmation": True,
+            "notes": ["Continuing the existing score workspace."],
         }
-        """
     )
-    service = TaskIntakeService(FakeStore(), codex)
+    service = TaskIntakeService(FakeStore(), codex, make_policy())
 
     response = await service.analyze(
         None,
@@ -103,10 +124,11 @@ async def test_analyze_uses_repo_scoped_context():
     assert "feature/score" in prompt
     assert "Fix score rendering" in prompt
     assert "기존 점수 작업 이어서 수정해줘." in prompt
+    assert "main workspace is protected" in prompt
 
 
 def test_parse_response_accepts_fenced_json():
-    service = TaskIntakeService(FakeStore(), FakeCodex("{}"))
+    service = TaskIntakeService(FakeStore(), FakeCodex({}), make_policy())
 
     response = service._parse_response(
         """
@@ -134,7 +156,7 @@ def test_parse_response_accepts_fenced_json():
 
 
 def test_parse_response_rejects_invalid_json():
-    service = TaskIntakeService(FakeStore(), FakeCodex("{}"))
+    service = TaskIntakeService(FakeStore(), FakeCodex({}), make_policy())
 
     with pytest.raises(ValueError, match="valid JSON"):
         service._parse_response("not json")
@@ -143,24 +165,22 @@ def test_parse_response_rejects_invalid_json():
 @pytest.mark.asyncio
 async def test_analyze_includes_conversation_and_current_draft():
     codex = FakeCodex(
-        """
         {
-          "draft": {
-            "workspace_mode": "unspecified",
-            "workspace_id": null,
-            "new_workspace_name": null,
-            "title": "Build Tetris",
-            "description": "Implement the Tetris game.",
-            "blocked_by_task_id": null,
-            "scheduled_for": null
-          },
-          "questions": ["Use the main workspace or create a new one?"],
-          "needs_confirmation": false,
-          "notes": []
+            "draft": {
+                "workspace_mode": "unspecified",
+                "workspace_id": None,
+                "new_workspace_name": None,
+                "title": "Build Tetris",
+                "description": "Implement the Tetris game.",
+                "blocked_by_task_id": None,
+                "scheduled_for": None,
+            },
+            "questions": ["Use the main workspace or create a new one?"],
+            "needs_confirmation": False,
+            "notes": [],
         }
-        """
     )
-    service = TaskIntakeService(FakeStore(), codex)
+    service = TaskIntakeService(FakeStore(), codex, make_policy())
 
     await service.analyze(
         None,
@@ -187,7 +207,8 @@ async def test_analyze_includes_conversation_and_current_draft():
 async def test_analyze_falls_back_when_codex_output_is_not_json():
     service = TaskIntakeService(
         FakeStore(),
-        FakeCodex("Describe the task you want posted."),
+        FakeCodex({}, error=httpx.ConnectError("down")),
+        make_policy(),
     )
 
     response = await service.analyze(
@@ -202,3 +223,18 @@ async def test_analyze_falls_back_when_codex_output_is_not_json():
     assert "실제로 사용할 수 있는 결과물" in response.draft.description
     assert response.needs_confirmation is True
     assert "Draft generated from the request" in response.notes[0]
+
+
+@pytest.mark.asyncio
+async def test_analyze_surfaces_structured_contract_errors():
+    service = TaskIntakeService(
+        FakeStore(),
+        FakeCodex({}, error=ValueError("bad response")),
+        make_policy(),
+    )
+
+    with pytest.raises(ValueError, match="bad response"):
+        await service.analyze(
+            None,
+            TaskIntakeRequest(repo_id=3, user_request="테트리스 게임을 구현해줘."),
+        )

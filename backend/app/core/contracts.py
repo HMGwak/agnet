@@ -34,6 +34,13 @@ class AgentRunner(Protocol):
     def format_task_input(self, task_title: str, task_description: str) -> str: ...
     async def cancel(self, task_id: int) -> None: ...
     async def generate_plan(self, workspace_path: Path, task_description: str, **kw) -> tuple[int, str]: ...
+    async def critique_plan(
+        self,
+        workspace_path: Path,
+        plan_text: str,
+        task_description: str,
+        **kw,
+    ) -> tuple[int, str]: ...
     async def implement_plan(
         self,
         workspace_path: Path,
@@ -42,6 +49,15 @@ class AgentRunner(Protocol):
         **kw,
     ) -> tuple[int, str]: ...
     async def run_tests(self, workspace_path: Path, **kw) -> tuple[int, str]: ...
+    async def review_result(
+        self,
+        workspace_path: Path,
+        plan_text: str,
+        task_description: str,
+        test_output: str,
+        diff_text: str,
+        **kw,
+    ) -> tuple[int, str]: ...
 
 
 class EventSink(Protocol):

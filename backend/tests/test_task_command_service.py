@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.project_policy import ProjectPolicy
 from app.core.task_commands import TaskCommandService
 from app.models import TaskStatus, WorkspaceKind
 
@@ -28,6 +29,7 @@ class FakeStore:
         )
         self.created_task = None
         self.deleted_workspace = None
+        self.created_workspace_names = []
 
     async def get_repo(self, db, repo_id: int):
         return self.repo if repo_id == self.repo.id else None
@@ -46,6 +48,7 @@ class FakeStore:
         return self.main_workspace
 
     async def create_workspace(self, db, *, repo_id: int, name: str, kind, base_branch: str):
+        self.created_workspace_names.append(name)
         return self.feature_workspace
 
     async def create_task(self, db, **kwargs):
@@ -119,11 +122,30 @@ class FakeDB:
         return None
 
 
+def make_policy():
+    return ProjectPolicy(
+        plan_required=True,
+        critique_required=True,
+        critique_max_rounds=2,
+        test_fix_loops=2,
+        review_required=True,
+        merge_human_approval=True,
+        allow_user_override=False,
+        allow_repo_override=False,
+        main_allow_feature_work=False,
+        main_allow_hotfix=True,
+        main_allow_plan_review=True,
+        auto_fork_feature_workspace_from_main=True,
+        hotfix_keywords=("fix", "bug", "patch"),
+        plan_review_keywords=("plan", "review", "triage"),
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_task_defaults_to_main_workspace():
     store = FakeStore()
     worker_pool = FakeWorkerPool()
-    service = TaskCommandService(store, FakeWorkflow(), FakeEvents(), worker_pool)
+    service = TaskCommandService(store, FakeWorkflow(), FakeEvents(), worker_pool, make_policy())
 
     task = await service.create_task(
         FakeDB(),
@@ -136,8 +158,8 @@ async def test_create_task_defaults_to_main_workspace():
         create_workspace=None,
     )
 
-    assert task.workspace_id == 10
-    assert task.branch_name == "workspace/main/1"
+    assert task.workspace_id == 11
+    assert task.branch_name == "workspace/11/feature"
     assert worker_pool.enqueued == [5]
 
 
@@ -145,7 +167,7 @@ async def test_create_task_defaults_to_main_workspace():
 async def test_create_task_uses_existing_workspace():
     store = FakeStore()
     worker_pool = FakeWorkerPool()
-    service = TaskCommandService(store, FakeWorkflow(), FakeEvents(), worker_pool)
+    service = TaskCommandService(store, FakeWorkflow(), FakeEvents(), worker_pool, make_policy())
 
     task = await service.create_task(
         FakeDB(),
@@ -163,10 +185,31 @@ async def test_create_task_uses_existing_workspace():
 
 
 @pytest.mark.asyncio
+async def test_create_task_keeps_hotfix_on_main_workspace():
+    store = FakeStore()
+    worker_pool = FakeWorkerPool()
+    service = TaskCommandService(store, FakeWorkflow(), FakeEvents(), worker_pool, make_policy())
+
+    task = await service.create_task(
+        FakeDB(),
+        repo_id=1,
+        title="Fix regression in queue ordering",
+        description="Patch the queue sorting bug.",
+        scheduled_for=None,
+        blocked_by_task_id=None,
+        workspace_id=None,
+        create_workspace=None,
+    )
+
+    assert task.workspace_id == 10
+    assert store.created_workspace_names == []
+
+
+@pytest.mark.asyncio
 async def test_delete_task_can_delete_empty_feature_workspace():
     store = FakeStore()
     workflow = FakeWorkflow()
-    service = TaskCommandService(store, workflow, FakeEvents(), FakeWorkerPool())
+    service = TaskCommandService(store, workflow, FakeEvents(), FakeWorkerPool(), make_policy())
     db = FakeDB()
     task = SimpleNamespace(
         id=7,

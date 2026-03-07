@@ -4,8 +4,30 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$SCRIPT_DIR/backend"
 DASHBOARD_DIR="$SCRIPT_DIR/dashboard"
-PROJECT_CODEX_HOME="$SCRIPT_DIR/.codex"
+SIDECAR_DIR="$SCRIPT_DIR/codex-sidecar"
+CODEX_SDK_DIR="$SCRIPT_DIR/.codex-sdk"
+CODEX_HOME_DIR="$CODEX_SDK_DIR/home"
+CODEX_AUTH_FILE="$CODEX_HOME_DIR/auth.json"
+CODEX_CONFIG_FILE="$CODEX_HOME_DIR/config.toml"
 VENV_PYTHON=""
+
+ensure_codex_auth() {
+  local auth_file="$1"
+  local login_script="$2"
+
+  if [ -f "$auth_file" ]; then
+    return 0
+  fi
+
+  echo "Project-local Codex OAuth login is required."
+  echo "Launching login flow..."
+  "$login_script"
+
+  if [ ! -f "$auth_file" ]; then
+    echo "Codex OAuth login did not create auth.json: $auth_file" >&2
+    exit 1
+  fi
+}
 
 kill_port() {
   local port="$1"
@@ -43,21 +65,10 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v codex >/dev/null 2>&1; then
-  echo "codex is not installed or not on PATH." >&2
-  echo "Install Codex CLI and reopen the terminal." >&2
-  exit 1
-fi
-
-mkdir -p "$PROJECT_CODEX_HOME"
-if [ ! -f "$PROJECT_CODEX_HOME/auth.json" ] && [ -f "$HOME/.codex/auth.json" ] && [ "$PROJECT_CODEX_HOME" != "$HOME/.codex" ]; then
-  cp "$HOME/.codex/auth.json" "$PROJECT_CODEX_HOME/auth.json"
-fi
-export CODEX_HOME="$PROJECT_CODEX_HOME"
-
-echo "Stopping existing processes on ports 8001 and 3000..."
+echo "Stopping existing processes on ports 8001, 3000 and 8765..."
 kill_port 8001
 kill_port 3000
+kill_port 8765
 
 # Backend (.venv Python managed by uv)
 cd "$BACKEND_DIR"
@@ -84,6 +95,28 @@ else
   npm install
 fi
 
+echo "Preparing Codex sidecar dependencies..."
+cd "$SIDECAR_DIR"
+if [ -f "package-lock.json" ]; then
+  if [ ! -d "node_modules" ]; then
+    npm ci
+  else
+    npm install
+  fi
+else
+  npm install
+fi
+
+mkdir -p "$CODEX_HOME_DIR"
+if [ ! -f "$CODEX_CONFIG_FILE" ]; then
+  cat >"$CODEX_CONFIG_FILE" <<'EOF'
+cli_auth_credentials_store = "file"
+forced_login_method = "chatgpt"
+EOF
+fi
+
+ensure_codex_auth "$CODEX_AUTH_FILE" "$SCRIPT_DIR/codex-login.sh"
+
 cd "$BACKEND_DIR"
 "$VENV_PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port 8001 &
 BACKEND_PID=$!
@@ -96,7 +129,7 @@ FRONTEND_PID=$!
 echo "Backend: http://localhost:8001"
 echo "Dashboard: http://localhost:3000"
 echo "Backend Python: $VENV_PYTHON"
-echo "Codex home: $CODEX_HOME"
+echo "Codex auth cache: $CODEX_AUTH_FILE"
 echo "Press Ctrl+C to stop"
 
 trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null" EXIT

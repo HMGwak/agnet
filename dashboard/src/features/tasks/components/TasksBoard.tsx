@@ -32,12 +32,12 @@ const BOARD_COLUMNS: Column[] = [
   },
   {
     title: "Needs Approval",
-    statuses: ["AWAIT_PLAN_APPROVAL", "AWAIT_MERGE_APPROVAL"],
+    statuses: ["AWAIT_MERGE_APPROVAL"],
     color: "border-yellow-400",
   },
   {
     title: "Needs Attention",
-    statuses: ["NEEDS_ATTENTION", "FAILED"],
+    statuses: ["NEEDS_ATTENTION", "FAILED", "AWAIT_PLAN_APPROVAL"],
     color: "border-amber-400",
   },
   {

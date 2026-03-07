@@ -1,0 +1,14 @@
+{
+  "name": "agent-codex-sidecar",
+  "private": true,
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@openai/codex": "^0.111.0",
+    "@openai/codex-sdk": "^0.111.0"
+  }
+}
