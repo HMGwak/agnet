@@ -265,7 +265,7 @@ async def test_workflow_engine_moves_to_needs_attention_when_critique_does_not_c
 
 
 @pytest.mark.asyncio
-async def test_workflow_engine_moves_to_needs_attention_when_implementation_makes_no_changes():
+async def test_workflow_engine_proceeds_to_testing_when_implementation_makes_no_changes():
     task = Task(
         id=1,
         repo_id=2,
@@ -288,12 +288,16 @@ async def test_workflow_engine_moves_to_needs_attention_when_implementation_make
     events = FakeEventSink()
     engine = SymphonyWorkflowEngine(
         FakeWorkspaceManager(has_changes=False),
-        FakeAgentRunner(),
+        FakeAgentRunner(
+            test_output="VERDICT: PASS\nSUMMARY: No changes needed.\nDETAILS:\nLooks good.",
+            review_output="VERDICT: PASS\nSUMMARY: No changes needed.\nDETAILS:\nLooks good.",
+        ),
         events,
         FakeSessionFactory(task, repo, workspace),
     )
 
     await engine.process_task(1)
 
-    assert task.status == TaskStatus.NEEDS_ATTENTION
-    assert "Implementation completed without creating any file changes" in task.error_message
+    assert task.status == TaskStatus.AWAIT_MERGE_APPROVAL
+    assert any("Implementation completed without creating any file changes" in log for log in events.logs)
+    assert any("no mergeable workspace changes remained" in log for log in events.logs)

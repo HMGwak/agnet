@@ -226,12 +226,11 @@ class SymphonyWorkflowEngine:
             raise RuntimeError(f"Implementation failed: {output[-500:]}")
 
         if not await self.git.has_working_tree_changes(workspace_path):
-            raise NeedsAttentionError(
-                "Implementation completed without creating any file changes in the workspace.\n\n"
+            await self.events.log(
+                task.id,
+                "Warning: Implementation completed without creating any file changes in the workspace.\n"
                 "The executor returned success, but the worktree is unchanged. "
-                "No implementation is available for testing yet.\n\n"
-                "If this keeps happening, verify that the Codex runtime is not restricted to a "
-                "read-only sandbox and that write operations are allowed in the workspace."
+                "The tester will evaluate if the workspace state fulfills the requirements."
             )
 
         await self._update_status(session, task, TaskStatus.TESTING)
@@ -267,11 +266,10 @@ class SymphonyWorkflowEngine:
             workspace_path,
             self._build_task_commit_message(task),
         ):
-            raise NeedsAttentionError(
-                "Implementation completed, but no mergeable workspace changes remained after filtering "
-                "ignored workspace artifacts.\n\n"
-                "If this keeps happening, verify that the runtime is not producing files only inside "
-                "placeholder directories such as unresolved Windows environment-variable paths."
+            await self.events.log(
+                task.id,
+                "Notice: Implementation completed, but no mergeable workspace changes remained after testing. "
+                "This may indicate the task required no code changes or changes were filtered."
             )
 
         task.diff_text = await self.git.get_diff(
