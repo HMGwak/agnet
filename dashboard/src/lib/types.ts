@@ -22,10 +22,27 @@ export interface Repo {
   created_at: string;
 }
 
+export interface RepoProfile {
+  language: string;
+  frameworks: string[];
+  package_manager: string;
+  dev_commands: string[];
+  test_commands: string[];
+  build_commands: string[];
+  lint_commands: string[];
+  deploy_considerations: string;
+  main_branch_protection: string;
+  deployment_sensitivity: string;
+  environment_notes: string[];
+  safety_rules: string[];
+}
+
 export interface RepoCreate {
   name: string;
   path: string;
   default_branch?: string;
+  create_if_missing?: boolean;
+  profile: RepoProfile;
 }
 
 export interface RepoPathPickResponse {
@@ -122,6 +139,7 @@ export interface TaskIntakeRequest {
   user_request: string;
   conversation?: TaskIntakeTurn[];
   draft?: TaskIntakeDraft;
+  repo_profile?: RepoProfile;
 }
 
 export interface TaskIntakeResponse {
@@ -129,6 +147,8 @@ export interface TaskIntakeResponse {
   questions: string[];
   needs_confirmation: boolean;
   notes: string[];
+  repo_profile: RepoProfile | null;
+  repo_profile_missing_fields: string[];
 }
 
 export interface TaskResumeReq {

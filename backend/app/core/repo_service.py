@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.adapters.sqlite_store import SQLiteStore
+from app.core.repo_profile import write_repo_profile
+from app.schemas import RepoProfileCreate
 
 
 class RepoService:
@@ -10,15 +12,28 @@ class RepoService:
         self.store = store
         self.workspace_manager = workspace_manager
 
-    async def create_repo(self, db, name: str, path: str, default_branch: str):
+    async def create_repo(
+        self,
+        db,
+        name: str,
+        path: str,
+        default_branch: str,
+        create_if_missing: bool = False,
+        profile: RepoProfileCreate | None = None,
+    ):
         repo_path = Path(path)
         if not repo_path.is_dir():
-            raise ValueError("Path does not exist or is not a directory")
+            if create_if_missing:
+                repo_path.mkdir(parents=True, exist_ok=True)
+            else:
+                raise ValueError("Path does not exist or is not a directory")
 
         if not (repo_path / ".git").exists():
             await self.workspace_manager.ensure_repository(repo_path, default_branch)
 
         repo = await self.store.create_repo(db, name, str(repo_path), default_branch)
+        if profile is not None:
+            write_repo_profile(repo_path, profile)
         await self.store.ensure_main_workspace(db, repo)
         return repo
 

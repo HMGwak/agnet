@@ -9,7 +9,15 @@ from pydantic import ValidationError
 
 from app.core.project_policy import ProjectPolicy
 from app.core.policies import slugify
+from app.core.repo_profile import (
+    build_repo_profile_questions,
+    merge_repo_profile,
+    missing_repo_profile_fields,
+    read_repo_profile,
+    write_repo_profile,
+)
 from app.schemas import (
+    RepoProfileDraft,
     TaskIntakeDraft,
     TaskIntakeRequest,
     TaskIntakeResponse,
@@ -27,13 +35,27 @@ class TaskIntakeService:
         if repo is None:
             raise LookupError("Repo not found")
 
+        repo_path = Path(repo.path)
         workspaces = await self.store.list_workspaces(db, repo.id)
         tasks = await self.store.list_tasks(db, repo_id=repo.id)
+        repo_profile = merge_repo_profile(read_repo_profile(repo_path), body.repo_profile)
+
+        missing_profile_fields = missing_repo_profile_fields(repo_profile)
+        if not missing_profile_fields and repo_profile is not None:
+            write_repo_profile(repo_path, repo_profile)
+        if missing_profile_fields:
+            return self._build_repo_profile_response(
+                user_request=body.user_request,
+                current_draft=body.draft,
+                repo_profile=repo_profile,
+                missing_fields=missing_profile_fields,
+            )
 
         prompt = self._build_prompt(
             repo_name=repo.name,
             repo_path=repo.path,
             default_branch=repo.default_branch,
+            repo_profile=repo_profile,
             workspaces=workspaces,
             tasks=tasks,
             user_request=body.user_request,
@@ -43,20 +65,22 @@ class TaskIntakeService:
         try:
             payload = await self.codex.run_intake(
                 prompt,
-                cwd=Path(repo.path),
+                cwd=repo_path,
                 output_schema=self._response_schema(),
             )
-            return TaskIntakeResponse.model_validate(payload)
+            response = TaskIntakeResponse.model_validate(payload)
+            return self._attach_repo_profile(response, repo_profile)
         except (httpx.HTTPError, OSError, RuntimeError):
             pass
 
-        return self._fallback_response(
+        response = self._fallback_response(
             workspaces=workspaces,
             tasks=tasks,
             user_request=body.user_request,
             conversation=body.conversation,
             current_draft=body.draft,
         )
+        return self._attach_repo_profile(response, repo_profile)
 
     def _response_schema(self) -> dict:
         return {
@@ -104,6 +128,7 @@ class TaskIntakeService:
         repo_name: str,
         repo_path: str,
         default_branch: str,
+        repo_profile: RepoProfileDraft | None,
         workspaces: list,
         tasks: list,
         user_request: str,
@@ -143,6 +168,7 @@ class TaskIntakeService:
             for turn in conversation
         ]
         draft_payload = current_draft.model_dump(mode="json") if current_draft else None
+        repo_profile_payload = repo_profile.model_dump(mode="json") if repo_profile else None
 
         return (
             "You are an intake assistant for a local AI task board.\n"
@@ -150,6 +176,8 @@ class TaskIntakeService:
             "Return JSON only. Do not include markdown fences or any extra text.\n"
             "If key information is missing, ask concise follow-up questions in `questions`.\n"
             "Only use the provided repository context. Do not invent workspace ids or task ids.\n"
+            "The repository profile below comes from the fixed Repo Profile section in AGENTS.md.\n"
+            "Use it as the canonical environment context for language, package manager, commands, and deployment risk.\n"
             "This project uses a fixed internal quality pipeline: Planner -> Critic -> Executor -> Tester -> Reviewer -> Human Merge Approval.\n"
             "Prefer an existing workspace when the request sounds like continuing existing work.\n"
             "Prefer a new workspace when the request sounds isolated or new.\n"
@@ -176,6 +204,9 @@ class TaskIntakeService:
             f"Repository name: {repo_name}\n"
             f"Repository path: {repo_path}\n"
             f"Default branch: {default_branch}\n"
+            + "Repo profile:\n"
+            + json.dumps(repo_profile_payload, ensure_ascii=False)
+            + "\n\n"
             f"Available workspaces ({len(workspaces)}):\n"
             + ("\n".join(workspace_lines) if workspace_lines else "(none)")
             + "\n\n"
@@ -364,6 +395,43 @@ class TaskIntakeService:
             needs_confirmation=needs_confirmation,
             notes=notes,
         )
+
+    def _build_repo_profile_response(
+        self,
+        *,
+        user_request: str,
+        current_draft: TaskIntakeDraft | None,
+        repo_profile: RepoProfileDraft | None,
+        missing_fields: list[str],
+    ) -> TaskIntakeResponse:
+        draft = current_draft.model_copy(deep=True) if current_draft is not None else TaskIntakeDraft()
+        title = self._derive_title(user_request)
+        if title and not draft.title:
+            draft.title = title
+        if not draft.description:
+            draft.description = self._build_description(draft.title or title, user_request)
+
+        profile = repo_profile or RepoProfileDraft()
+        return TaskIntakeResponse(
+            draft=draft,
+            questions=build_repo_profile_questions(missing_fields),
+            needs_confirmation=False,
+            notes=[
+                "This repository is missing required Repo Profile fields in AGENTS.md.",
+                "Fill the highlighted repo profile fields and update the draft again.",
+            ],
+            repo_profile=profile,
+            repo_profile_missing_fields=missing_fields,
+        )
+
+    @staticmethod
+    def _attach_repo_profile(
+        response: TaskIntakeResponse,
+        repo_profile: RepoProfileDraft | None,
+    ) -> TaskIntakeResponse:
+        response.repo_profile = repo_profile
+        response.repo_profile_missing_fields = []
+        return response
 
     @staticmethod
     def _has_any(text: str, *keywords: str) -> bool:

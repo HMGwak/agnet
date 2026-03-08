@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { RepoProfileFields, EMPTY_REPO_PROFILE } from "@/components/RepoProfileFields";
 import { useRepos } from "@/hooks/useTasks";
 import { createRepo, deleteRepo, pickRepoPath } from "@/lib/api";
 import { formatKSTDate } from "@/lib/time";
@@ -22,6 +23,8 @@ export function ReposScreen() {
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [defaultBranch, setDefaultBranch] = useState("main");
+  const [createIfMissing, setCreateIfMissing] = useState(false);
+  const [profile, setProfile] = useState(EMPTY_REPO_PROFILE);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [browsing, setBrowsing] = useState(false);
@@ -53,10 +56,14 @@ export function ReposScreen() {
         name: name.trim(),
         path: normalizedPath,
         default_branch: defaultBranch.trim() || "main",
+        create_if_missing: createIfMissing,
+        profile,
       });
       setName("");
       setPath("");
       setDefaultBranch("main");
+      setCreateIfMissing(false);
+      setProfile(EMPTY_REPO_PROFILE);
       mutate();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create repo");
@@ -130,6 +137,15 @@ export function ReposScreen() {
             Pasted paths like <span className="font-mono">{'"D:\\Python\\agent\\dashboard"'}</span>{" "}
             are accepted.
           </p>
+          <label className="flex items-center gap-2 cursor-pointer mt-3 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={createIfMissing}
+              onChange={(e) => setCreateIfMissing(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Create new folder and initialize Git (if path is missing)
+          </label>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Default Branch</label>
@@ -140,6 +156,7 @@ export function ReposScreen() {
             className="w-full border rounded px-3 py-2 text-sm"
           />
         </div>
+        <RepoProfileFields value={profile} onChange={setProfile} />
         <button
           type="submit"
           disabled={submitting}

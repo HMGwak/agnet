@@ -5,10 +5,12 @@ import { useSearchParams } from "next/navigation";
 import { useRepos, useTasks, useWorkspaces } from "@/hooks/useTasks";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { analyzeTaskIntake, createTask, refineTaskIntake } from "@/lib/api";
+import { RepoProfileFields, EMPTY_REPO_PROFILE } from "@/components/RepoProfileFields";
 import { TaskCard } from "@/components/TaskCard";
 import { TaskDetailContent } from "@/components/TaskDetailContent";
 import { formatKSTDateTime, parseBackendTimestamp } from "@/lib/time";
 import type {
+  RepoProfile,
   TaskIntakeDraft,
   TaskIntakeTurn,
   TaskStatus,
@@ -275,6 +277,8 @@ function TaskComposer({
   const [intakeTurns, setIntakeTurns] = useState<TaskIntakeTurn[]>([]);
   const [intakeQuestions, setIntakeQuestions] = useState<string[]>([]);
   const [intakeNotes, setIntakeNotes] = useState<string[]>([]);
+  const [repoProfile, setRepoProfile] = useState<RepoProfile>(EMPTY_REPO_PROFILE);
+  const [repoProfileMissingFields, setRepoProfileMissingFields] = useState<string[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
@@ -302,6 +306,8 @@ function TaskComposer({
       setIntakeTurns([]);
       setIntakeQuestions([]);
       setIntakeNotes([]);
+      setRepoProfile(EMPTY_REPO_PROFILE);
+      setRepoProfileMissingFields([]);
       setAnalyzing(false);
       setIntakeError(null);
       setHasAnalyzed(false);
@@ -344,6 +350,11 @@ function TaskComposer({
     setScheduledFor(draft.scheduled_for ? toDateTimeLocalValue(draft.scheduled_for) : "");
   }
 
+  function applyIntakeProfile(profile: RepoProfile | null, missingFields: string[]) {
+    setRepoProfile(profile ?? EMPTY_REPO_PROFILE);
+    setRepoProfileMissingFields(missingFields);
+  }
+
   async function handleAnalyze() {
     if (!selectedRepoId || !userRequest.trim()) {
       return;
@@ -357,6 +368,7 @@ function TaskComposer({
         user_request: userRequest.trim(),
       });
       applyDraft(response.draft);
+      applyIntakeProfile(response.repo_profile, response.repo_profile_missing_fields);
       setIntakeNotes(response.notes);
       setIntakeQuestions(response.questions);
       setHasAnalyzed(true);
@@ -380,14 +392,18 @@ function TaskComposer({
   }
 
   async function handleRefine() {
-    if (!selectedRepoId || !userRequest.trim() || !followUpAnswer.trim()) {
+    const canRefineWithProfile = repoProfileMissingFields.length > 0;
+    if (
+      !selectedRepoId ||
+      !userRequest.trim() ||
+      (!followUpAnswer.trim() && !canRefineWithProfile)
+    ) {
       return;
     }
 
-    const nextTurns: TaskIntakeTurn[] = [
-      ...intakeTurns,
-      { role: "user", message: followUpAnswer.trim() },
-    ];
+    const nextTurns: TaskIntakeTurn[] = followUpAnswer.trim()
+      ? [...intakeTurns, { role: "user", message: followUpAnswer.trim() }]
+      : intakeTurns;
 
     setAnalyzing(true);
     setIntakeError(null);
@@ -405,8 +421,10 @@ function TaskComposer({
           blockedByTaskId,
           scheduledFor
         ),
+        repo_profile: repoProfile,
       });
       applyDraft(response.draft);
+      applyIntakeProfile(response.repo_profile, response.repo_profile_missing_fields);
       setIntakeNotes(response.notes);
       setIntakeQuestions(response.questions);
       setHasAnalyzed(true);
@@ -507,6 +525,8 @@ function TaskComposer({
                   setIntakeTurns([]);
                   setIntakeQuestions([]);
                   setIntakeNotes([]);
+                  setRepoProfile(EMPTY_REPO_PROFILE);
+                  setRepoProfileMissingFields([]);
                   setIntakeError(null);
                   setHasAnalyzed(false);
                 }}
@@ -591,6 +611,13 @@ function TaskComposer({
                     <li key={question}>{question}</li>
                   ))}
                 </ul>
+                {repoProfileMissingFields.length > 0 && (
+                  <RepoProfileFields
+                    value={repoProfile}
+                    onChange={setRepoProfile}
+                    missingFields={repoProfileMissingFields}
+                  />
+                )}
                 <textarea
                   value={followUpAnswer}
                   onChange={(event) => setFollowUpAnswer(event.target.value)}
@@ -602,7 +629,10 @@ function TaskComposer({
                   <button
                     type="button"
                     onClick={handleRefine}
-                    disabled={analyzing || !followUpAnswer.trim()}
+                    disabled={
+                      analyzing ||
+                      (!followUpAnswer.trim() && repoProfileMissingFields.length === 0)
+                    }
                     className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
                   >
                     {analyzing && <Loader2 className="animate-spin" size={16} />}

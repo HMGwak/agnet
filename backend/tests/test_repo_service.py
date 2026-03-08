@@ -49,6 +49,17 @@ class FakeWorkspaceManager:
         self.cleaned_paths.append((repo_path, workspace_path))
 
 
+def make_profile():
+    return {
+        "language": "Python",
+        "frameworks": ["FastAPI"],
+        "package_manager": "uv",
+        "dev_commands": ["uv sync --extra dev"],
+        "test_commands": ["uv run pytest"],
+        "deploy_considerations": "Local development first.",
+    }
+
+
 @pytest.mark.asyncio
 async def test_create_repo_initializes_main_workspace(tmp_path):
     service = RepoService(FakeStore(), workspace_manager=FakeWorkspaceManager())
@@ -58,10 +69,17 @@ async def test_create_repo_initializes_main_workspace(tmp_path):
         name="demo",
         path=str(tmp_path),
         default_branch="main",
+        profile=make_profile(),
     )
 
     assert repo.name == "demo"
     assert service.store.main_workspace_created_for is repo
+    agents_path = tmp_path / "AGENTS.md"
+    assert agents_path.exists()
+    content = agents_path.read_text(encoding="utf-8")
+    assert "## Repo Profile" in content
+    assert 'language = "Python"' in content
+    assert 'package_manager = "uv"' in content
 
 
 @pytest.mark.asyncio

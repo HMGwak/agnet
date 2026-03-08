@@ -4,18 +4,20 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from app.core.repo_profile import write_repo_profile
 from app.core.project_policy import ProjectPolicy
 from app.core.task_intake import TaskIntakeService
 from app.models import TaskStatus, WorkspaceKind
+from app.schemas import RepoProfileDraft
 from app.schemas import TaskIntakeRequest, TaskIntakeTurn
 
 
 class FakeStore:
-    def __init__(self):
+    def __init__(self, repo_path: str = "D:/repos/tetris_test"):
         self.repo = SimpleNamespace(
             id=3,
             name="tetris_test",
-            path="D:/repos/tetris_test",
+            path=repo_path,
             default_branch="main",
         )
         self.workspaces = [
@@ -91,8 +93,22 @@ def make_policy():
     )
 
 
+def make_profile() -> RepoProfileDraft:
+    return RepoProfileDraft(
+        language="Python",
+        frameworks=["FastAPI"],
+        package_manager="uv",
+        dev_commands=["uv sync --extra dev"],
+        test_commands=["uv run pytest"],
+        deploy_considerations="Local development first.",
+        main_branch_protection="protected",
+        deployment_sensitivity="medium",
+    )
+
+
 @pytest.mark.asyncio
-async def test_analyze_uses_repo_scoped_context():
+async def test_analyze_uses_repo_scoped_context(tmp_path):
+    write_repo_profile(tmp_path, make_profile())
     codex = FakeCodex(
         {
             "draft": {
@@ -109,7 +125,7 @@ async def test_analyze_uses_repo_scoped_context():
             "notes": ["Continuing the existing score workspace."],
         }
     )
-    service = TaskIntakeService(FakeStore(), codex, make_policy())
+    service = TaskIntakeService(FakeStore(repo_path=str(tmp_path)), codex, make_policy())
 
     response = await service.analyze(
         None,
@@ -119,12 +135,15 @@ async def test_analyze_uses_repo_scoped_context():
     assert response.draft.workspace_mode == "existing"
     assert response.draft.workspace_id == 11
     prompt, cwd = codex.calls[0]
-    assert Path(cwd) == Path("D:/repos/tetris_test")
+    assert Path(cwd) == tmp_path
     assert '"id": 11' in prompt
     assert "feature/score" in prompt
     assert "Fix score rendering" in prompt
     assert "기존 점수 작업 이어서 수정해줘." in prompt
     assert "main workspace is protected" in prompt
+    assert '"package_manager": "uv"' in prompt
+    assert response.repo_profile is not None
+    assert response.repo_profile.language == "Python"
 
 
 def test_parse_response_accepts_fenced_json():
@@ -163,7 +182,8 @@ def test_parse_response_rejects_invalid_json():
 
 
 @pytest.mark.asyncio
-async def test_analyze_includes_conversation_and_current_draft():
+async def test_analyze_includes_conversation_and_current_draft(tmp_path):
+    write_repo_profile(tmp_path, make_profile())
     codex = FakeCodex(
         {
             "draft": {
@@ -180,7 +200,7 @@ async def test_analyze_includes_conversation_and_current_draft():
             "notes": [],
         }
     )
-    service = TaskIntakeService(FakeStore(), codex, make_policy())
+    service = TaskIntakeService(FakeStore(repo_path=str(tmp_path)), codex, make_policy())
 
     await service.analyze(
         None,
@@ -204,9 +224,10 @@ async def test_analyze_includes_conversation_and_current_draft():
 
 
 @pytest.mark.asyncio
-async def test_analyze_falls_back_when_codex_output_is_not_json():
+async def test_analyze_falls_back_when_codex_output_is_not_json(tmp_path):
+    write_repo_profile(tmp_path, make_profile())
     service = TaskIntakeService(
-        FakeStore(),
+        FakeStore(repo_path=str(tmp_path)),
         FakeCodex({}, error=httpx.ConnectError("down")),
         make_policy(),
     )
@@ -226,9 +247,10 @@ async def test_analyze_falls_back_when_codex_output_is_not_json():
 
 
 @pytest.mark.asyncio
-async def test_analyze_surfaces_structured_contract_errors():
+async def test_analyze_surfaces_structured_contract_errors(tmp_path):
+    write_repo_profile(tmp_path, make_profile())
     service = TaskIntakeService(
-        FakeStore(),
+        FakeStore(repo_path=str(tmp_path)),
         FakeCodex({}, error=ValueError("bad response")),
         make_policy(),
     )
@@ -238,3 +260,58 @@ async def test_analyze_surfaces_structured_contract_errors():
             None,
             TaskIntakeRequest(repo_id=3, user_request="테트리스 게임을 구현해줘."),
         )
+
+
+@pytest.mark.asyncio
+async def test_analyze_requests_repo_profile_when_agents_file_is_missing(tmp_path):
+    service = TaskIntakeService(FakeStore(repo_path=str(tmp_path)), FakeCodex({}), make_policy())
+
+    response = await service.analyze(
+        None,
+        TaskIntakeRequest(repo_id=3, user_request="테트리스 게임을 구현해줘."),
+    )
+
+    assert response.repo_profile is not None
+    assert response.repo_profile_missing_fields == [
+        "language",
+        "package_manager",
+        "dev_commands",
+        "test_commands",
+        "deploy_considerations",
+    ]
+    assert response.needs_confirmation is False
+    assert "AGENTS.md" in response.notes[0]
+
+
+@pytest.mark.asyncio
+async def test_analyze_persists_repo_profile_updates_from_request(tmp_path):
+    service = TaskIntakeService(FakeStore(repo_path=str(tmp_path)), FakeCodex(
+        {
+            "draft": {
+                "workspace_mode": "new",
+                "workspace_id": None,
+                "new_workspace_name": "feature/tetris",
+                "title": "Build Tetris",
+                "description": "Create a standalone Tetris game implementation.",
+                "blocked_by_task_id": None,
+                "scheduled_for": None,
+            },
+            "questions": [],
+            "needs_confirmation": True,
+            "notes": ["New isolated workspace suggested."],
+        }
+    ), make_policy())
+
+    response = await service.analyze(
+        None,
+        TaskIntakeRequest(
+            repo_id=3,
+            user_request="테트리스 게임을 구현해줘.",
+            repo_profile=make_profile(),
+        ),
+    )
+
+    agents_path = tmp_path / "AGENTS.md"
+    assert agents_path.exists()
+    assert 'package_manager = "uv"' in agents_path.read_text(encoding="utf-8")
+    assert response.repo_profile_missing_fields == []

@@ -48,6 +48,8 @@ async def create_repo(
             body.name,
             body.path,
             body.default_branch,
+            body.create_if_missing,
+            body.profile,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
