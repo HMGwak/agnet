@@ -25,3 +25,5 @@
 ✓ Compiled in 87ms
 ✓ Compiled in 60ms
 ✓ Compiled in 70ms
+ GET /tasks?repo_id=1 200 in 243ms (compile: 104ms, render: 139ms)
+ GET /repos 200 in 80ms (compile: 50ms, render: 30ms)

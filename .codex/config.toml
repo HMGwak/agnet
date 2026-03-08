@@ -9,6 +9,7 @@ multi_agent = false
 [shell_environment_policy]
 include_only = [
   "PATH",
+  "SystemDrive",
   "SystemRoot",
   "SYSTEMROOT",
   "TEMP",
