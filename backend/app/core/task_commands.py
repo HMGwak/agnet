@@ -109,6 +109,7 @@ class TaskCommandService:
                 f"Protected main routed this task to feature workspace '{workspace.name}'.",
             )
         await self.worker_pool.enqueue(task.id)
+        await self.store.attach_task_runs(db, task)
         return task
 
     async def approve_plan(self, db, task_id: int, decision: str, comment: str):
@@ -158,6 +159,7 @@ class TaskCommandService:
         else:
             await db.refresh(task)
         await self.store.attach_task_metadata(db, [task])
+        await self.store.attach_task_runs(db, task)
         return task
 
     async def resume_task(self, db, task_id: int, comment: str):
@@ -186,6 +188,7 @@ class TaskCommandService:
             await self.events.log(task.id, f"Follow-up instructions received:\n{comment.strip()}")
         await self.events.log(task.id, "Task re-queued by user.")
         await self.store.attach_task_metadata(db, [task])
+        await self.store.attach_task_runs(db, task)
         await self.worker_pool.enqueue(task.id)
         return task
 

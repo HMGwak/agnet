@@ -28,8 +28,23 @@ class CodexSidecarManager:
             'cli_auth_credentials_store = "file"\nforced_login_method = "chatgpt"\n',
             encoding="utf-8",
         )
+        legacy_auth = self._legacy_auth_file()
+        if legacy_auth and legacy_auth.exists() and not self.settings.CODEX_AUTH_FILE.exists():
+            shutil.copy2(legacy_auth, self.settings.CODEX_AUTH_FILE)
         self.settings.SESSION_LOGS_DIR.mkdir(parents=True, exist_ok=True)
         self.settings.TASK_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _legacy_auth_file(self) -> Path | None:
+        project_data_dir = getattr(self.settings, "PROJECT_DATA_DIR", None)
+        if not isinstance(project_data_dir, Path):
+            return None
+        legacy_home = project_data_dir / "codex-home"
+        try:
+            if legacy_home.resolve() == self.settings.CODEX_HOME_DIR.resolve():
+                return None
+        except OSError:
+            return None
+        return legacy_home / "auth.json"
 
     def _open_log_handles(self) -> tuple[object, object]:
         self.settings.SESSION_LOGS_DIR.mkdir(parents=True, exist_ok=True)

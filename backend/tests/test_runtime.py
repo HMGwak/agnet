@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from app.bootstrap import runtime as runtime_module
+from app.config import Settings
 from app.core.codex_project_config import CodexProjectConfigError
 
 
@@ -134,3 +135,40 @@ def test_create_runtime_fails_when_project_codex_config_is_invalid(tmp_path, mon
 
     with pytest.raises(CodexProjectConfigError, match="Invalid TOML"):
         runtime_module.create_runtime()
+
+
+def test_effective_codex_sandbox_mode_uses_danger_full_access_on_windows(monkeypatch):
+    monkeypatch.setattr(runtime_module.sys, "platform", "win32")
+
+    assert (
+        runtime_module.effective_codex_sandbox_mode(
+            "workspace-write",
+            allow_unsandboxed_windows=True,
+        )
+        == "danger-full-access"
+    )
+
+
+def test_effective_codex_sandbox_mode_preserves_other_platforms(monkeypatch):
+    monkeypatch.setattr(runtime_module.sys, "platform", "linux")
+
+    assert (
+        runtime_module.effective_codex_sandbox_mode(
+            "workspace-write",
+            allow_unsandboxed_windows=False,
+        )
+        == "workspace-write"
+    )
+    assert (
+        runtime_module.effective_codex_sandbox_mode(
+            "danger-full-access",
+            allow_unsandboxed_windows=True,
+        )
+        == "danger-full-access"
+    )
+
+
+def test_settings_default_codex_home_is_app_local(tmp_path):
+    settings = Settings(BASE_DIR=tmp_path)
+
+    assert settings.CODEX_HOME_DIR == tmp_path / "project" / "app-codex-home"

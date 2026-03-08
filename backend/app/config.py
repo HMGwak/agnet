@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_TASKS: int = 6
     CODEX_MODEL: str = "gpt-5.4"
     CODEX_SANDBOX_MODE: str = "workspace-write"
+    CODEX_WINDOWS_UNSANDBOXED_WORKAROUND: bool = False
     CODEX_APPROVAL_POLICY: str = "never"
     CODEX_RUN_TIMEOUT_S: int = 300
     CODEX_SIDECAR_HOST: str = "127.0.0.1"
@@ -47,7 +48,7 @@ class Settings(BaseSettings):
         if self.CODEX_SIDECAR_DIR == Path(""):
             self.CODEX_SIDECAR_DIR = runtime_codex_dir / "sidecar"
         if self.CODEX_HOME_DIR == Path(""):
-            self.CODEX_HOME_DIR = self.PROJECT_DATA_DIR / "codex-home"
+            self.CODEX_HOME_DIR = self.PROJECT_DATA_DIR / "app-codex-home"
         if self.CODEX_POLICY_FILE == Path(""):
             self.CODEX_POLICY_FILE = runtime_codex_dir / "policy.toml"
         if self.CODEX_PROMPTS_DIR == Path(""):

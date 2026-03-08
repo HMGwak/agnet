@@ -45,7 +45,7 @@ Pull requests should include a concise summary, the affected area (`backend`, `d
 
 ## Security & Configuration Tips
 Do not commit real repository data, logs, local database files, or auth state. Keep local settings aligned with `http://localhost:3000` to match the backend CORS configuration during development.
-The app runtime is expected to use the repository-local Codex runtime under `runtime/codex/sidecar/` with all personal Codex state under `project/codex-home/`; invoking `codex` directly from a shell is a separate concern and is not the app runtime.
+The app runtime is expected to use the repository-local Codex runtime under `runtime/codex/sidecar/` with app-local Codex state under `project/app-codex-home/`; invoking `codex` directly from a shell is a separate concern and is not the app runtime.
 The Codex contract source of truth is [`runtime/codex/contract/codex-contract.toml`](/D:/Python/agent/runtime/codex/contract/codex-contract.toml). Update that manifest, then run `python tools/codex_contract.py apply` to regenerate managed files and `python tools/codex_contract.py verify` to check drift.
 
 ## Orchestrator (Team Lead) Defaults

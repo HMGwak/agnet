@@ -215,7 +215,9 @@ class SymphonyWorkflowEngine:
             raise NeedsAttentionError(
                 "Implementation completed without creating any file changes in the workspace.\n\n"
                 "The executor returned success, but the worktree is unchanged. "
-                "No implementation is available for testing yet."
+                "No implementation is available for testing yet.\n\n"
+                "If this keeps happening, verify that the Codex runtime is not restricted to a "
+                "read-only sandbox and that write operations are allowed in the workspace."
             )
 
         await self._update_status(session, task, TaskStatus.TESTING)

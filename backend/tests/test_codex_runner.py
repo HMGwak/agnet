@@ -1,7 +1,9 @@
+import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
-import json
 
+import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -109,10 +111,12 @@ def make_project_config(tmp_path: Path) -> CodexProjectConfig:
 
 def make_sidecar_settings(tmp_path: Path) -> SimpleNamespace:
     sidecar_dir = tmp_path / "runtime" / "codex" / "sidecar"
-    home_dir = tmp_path / "project" / "codex-home"
+    project_dir = tmp_path / "project"
+    home_dir = project_dir / "app-codex-home"
     logs_dir = tmp_path / "project" / "logs"
     sidecar_dir.mkdir(parents=True, exist_ok=True)
     return SimpleNamespace(
+        PROJECT_DATA_DIR=project_dir,
         CODEX_HOME_DIR=home_dir,
         CODEX_HOME_CONFIG_FILE=home_dir / "config.toml",
         CODEX_AUTH_FILE=home_dir / "auth.json",
@@ -124,6 +128,19 @@ def make_sidecar_settings(tmp_path: Path) -> SimpleNamespace:
         TASK_LOGS_DIR=logs_dir / "session" / "tasks",
         SESSION_METADATA_FILE=logs_dir / "session" / "session.json",
     )
+
+
+class HangingSSEStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: list[bytes]):
+        self._chunks = chunks
+
+    async def __aiter__(self):
+        for chunk in self._chunks:
+            yield chunk
+        await asyncio.sleep(3600)
+
+    async def aclose(self) -> None:
+        return None
 
 
 def test_format_task_input_uses_title_when_description_is_blank():
@@ -238,6 +255,72 @@ async def test_run_codex_falls_back_to_sidecar_result_when_stream_has_only_termi
 
     assert exit_code == 1
     assert output == "outputSchema must be a plain JSON object"
+
+
+@pytest.mark.asyncio
+async def test_run_codex_returns_final_output_when_stream_stalls_after_agent_message(
+    httpx_mock: HTTPXMock, tmp_path
+):
+    runner = CodexRunner(
+        base_url="http://127.0.0.1:8765",
+        model="gpt-5.4",
+        sandbox_mode="workspace-write",
+        approval_policy="never",
+        run_timeout_s=300,
+        prompt_library=make_prompts(),
+        policy=make_policy(),
+        project_config=make_project_config(tmp_path),
+        final_output_idle_timeout_s=0.01,
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url="http://127.0.0.1:8765/runs",
+        json={"runId": "run-3"},
+        status_code=200,
+    )
+    httpx_mock.add_callback(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=HangingSSEStream(
+                [b'data: {"type":"item.completed","item":{"type":"agent_message","text":"final text"}}\n\n']
+            ),
+        ),
+        method="GET",
+        url="http://127.0.0.1:8765/runs/run-3/events",
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url="http://127.0.0.1:8765/runs/run-3/events",
+        json={
+            "runId": "run-3",
+            "status": "running",
+            "events": [
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": "final text"},
+                }
+            ],
+            "result": None,
+            "exitCode": None,
+        },
+        status_code=200,
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url="http://127.0.0.1:8765/runs/run-3/cancel",
+        json={"runId": "run-3", "status": "cancelled"},
+        status_code=200,
+    )
+
+    exit_code, output = await runner.run_codex(
+        "hello",
+        tmp_path,
+        task_id=14,
+    )
+
+    assert exit_code == 0
+    assert output == "final text"
 
 
 @pytest.mark.asyncio
@@ -386,6 +469,20 @@ def test_sidecar_manager_writes_project_local_oauth_config(tmp_path):
 
     assert settings.CODEX_HOME_CONFIG_FILE.exists()
     assert 'forced_login_method = "chatgpt"' in settings.CODEX_HOME_CONFIG_FILE.read_text(encoding="utf-8")
+
+
+def test_sidecar_manager_migrates_legacy_auth_into_app_local_runtime_home(tmp_path):
+    settings = make_sidecar_settings(tmp_path)
+    manager = CodexSidecarManager(settings)
+    legacy_home = settings.PROJECT_DATA_DIR / "codex-home"
+    legacy_home.mkdir(parents=True, exist_ok=True)
+    legacy_auth = legacy_home / "auth.json"
+    legacy_auth.write_text('{"access_token":"legacy"}', encoding="utf-8")
+
+    manager._ensure_runtime_files()
+
+    assert settings.CODEX_AUTH_FILE.exists()
+    assert settings.CODEX_AUTH_FILE.read_text(encoding="utf-8") == '{"access_token":"legacy"}'
 
 
 @pytest.mark.asyncio

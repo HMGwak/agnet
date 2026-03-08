@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import sys
 
 from app.adapters import AppEventSink, CodexRunner, GitManager, SQLiteStore
 from app.api.websocket import ws_manager
@@ -46,6 +47,23 @@ class AppRuntime:
         await self.sidecar.stop()
 
 
+def effective_codex_sandbox_mode(
+    configured_mode: str,
+    *,
+    allow_unsandboxed_windows: bool,
+) -> str:
+    # Codex 0.111.0 on Windows can downgrade workspace-write exec sessions to read-only.
+    # Until the upstream runtime bug is fixed, run the local Windows runtime unsandboxed
+    # so task execution can actually modify the workspace.
+    if (
+        allow_unsandboxed_windows
+        and sys.platform == "win32"
+        and configured_mode == "workspace-write"
+    ):
+        return "danger-full-access"
+    return configured_mode
+
+
 def create_runtime() -> AppRuntime:
     policy = load_project_policy(settings.CODEX_POLICY_FILE)
     prompts = PromptLibrary.load_from_directory(settings.CODEX_PROMPTS_DIR)
@@ -58,7 +76,10 @@ def create_runtime() -> AppRuntime:
     codex = CodexRunner(
         base_url=f"http://{settings.CODEX_SIDECAR_HOST}:{settings.CODEX_SIDECAR_PORT}",
         model=settings.CODEX_MODEL,
-        sandbox_mode=settings.CODEX_SANDBOX_MODE,
+        sandbox_mode=effective_codex_sandbox_mode(
+            settings.CODEX_SANDBOX_MODE,
+            allow_unsandboxed_windows=settings.CODEX_WINDOWS_UNSANDBOXED_WORKAROUND,
+        ),
         approval_policy=settings.CODEX_APPROVAL_POLICY,
         run_timeout_s=settings.CODEX_RUN_TIMEOUT_S,
         prompt_library=prompts,

@@ -65,6 +65,9 @@ class FakeStore:
     async def count_workspace_tasks(self, db, workspace_id: int) -> int:
         return 1
 
+    async def attach_task_runs(self, db, task):
+        return task
+
     async def find_dependent_task(self, db, task_id: int):
         return None
 

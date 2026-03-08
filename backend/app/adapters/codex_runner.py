@@ -24,6 +24,7 @@ class CodexRunner:
         prompt_library: PromptLibrary,
         policy: ProjectPolicy,
         project_config: CodexProjectConfig,
+        final_output_idle_timeout_s: float = 5.0,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -33,6 +34,7 @@ class CodexRunner:
         self.prompts = prompt_library
         self.policy = policy
         self.project_config = project_config
+        self.final_output_idle_timeout_s = final_output_idle_timeout_s
         self._task_runs: dict[int, str] = {}
         self._lock = asyncio.Lock()
 
@@ -101,7 +103,41 @@ class CodexRunner:
                 headers={"accept": "text/event-stream"},
             ) as stream:
                 stream.raise_for_status()
-                async for line in stream.aiter_lines():
+                line_iter = stream.aiter_lines()
+                while True:
+                    try:
+                        if final_output and self.final_output_idle_timeout_s > 0:
+                            line = await asyncio.wait_for(
+                                line_iter.__anext__(),
+                                timeout=self.final_output_idle_timeout_s,
+                            )
+                        else:
+                            line = await line_iter.__anext__()
+                    except StopAsyncIteration:
+                        break
+                    except asyncio.TimeoutError:
+                        snapshot = await client.get(f"/runs/{run_id}/events")
+                        snapshot.raise_for_status()
+                        snapshot_body = snapshot.json()
+                        snapshot_status = str(snapshot_body.get("status", "running"))
+                        snapshot_output = self._extract_run_output(snapshot_body)
+                        if snapshot_status == "done":
+                            exit_code = 0
+                            final_output = snapshot_output or final_output
+                            break
+                        if snapshot_status == "failed":
+                            exit_code = 1
+                            failure_message = snapshot_output or "Codex run failed"
+                            break
+                        if snapshot_status == "cancelled":
+                            exit_code = 1
+                            failure_message = snapshot_output or "cancelled"
+                            break
+                        if final_output:
+                            await self._cancel_run(client, run_id)
+                            exit_code = 0
+                            break
+                        continue
                     if not line:
                         continue
                     if line.startswith("data: "):
@@ -144,6 +180,32 @@ class CodexRunner:
             if exit_code == 0:
                 return 0, final_output
             return 1, failure_message or final_output
+
+    async def _cancel_run(self, client: httpx.AsyncClient, run_id: str) -> None:
+        try:
+            await client.post(f"/runs/{run_id}/cancel")
+        except Exception:
+            pass
+
+    def _extract_run_output(self, run_body: dict[str, Any]) -> str:
+        result_text = str(run_body.get("result", "") or "")
+        if result_text:
+            return result_text
+        events = run_body.get("events")
+        if not isinstance(events, list):
+            return ""
+        for event in reversed(events):
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") != "item.completed":
+                continue
+            item = event.get("item")
+            if not isinstance(item, dict) or item.get("type") != "agent_message":
+                continue
+            text = str(item.get("text", "") or "")
+            if text:
+                return text
+        return ""
 
     async def run_intake(self, prompt: str, cwd: Path, output_schema: dict[str, Any]) -> dict[str, Any]:
         payload = {
