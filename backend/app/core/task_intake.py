@@ -38,10 +38,16 @@ class TaskIntakeService:
         repo_path = Path(repo.path)
         workspaces = await self.store.list_workspaces(db, repo.id)
         tasks = await self.store.list_tasks(db, repo_id=repo.id)
-        repo_profile = merge_repo_profile(read_repo_profile(repo_path), body.repo_profile)
+        existing_repo_profile = read_repo_profile(repo_path)
+        repo_profile = merge_repo_profile(existing_repo_profile, body.repo_profile)
 
         missing_profile_fields = missing_repo_profile_fields(repo_profile)
-        if not missing_profile_fields and repo_profile is not None:
+        if (
+            body.repo_profile is not None
+            and not missing_profile_fields
+            and repo_profile is not None
+            and self._repo_profile_changed(existing_repo_profile, repo_profile)
+        ):
             write_repo_profile(repo_path, repo_profile)
         if missing_profile_fields:
             return self._build_repo_profile_response(
@@ -432,6 +438,15 @@ class TaskIntakeService:
         response.repo_profile = repo_profile
         response.repo_profile_missing_fields = []
         return response
+
+    @staticmethod
+    def _repo_profile_changed(
+        existing: RepoProfileDraft | None,
+        updated: RepoProfileDraft,
+    ) -> bool:
+        if existing is None:
+            return True
+        return existing.model_dump(mode="json") != updated.model_dump(mode="json")
 
     @staticmethod
     def _has_any(text: str, *keywords: str) -> bool:

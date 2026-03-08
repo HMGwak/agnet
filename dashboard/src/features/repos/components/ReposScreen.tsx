@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { RepoProfileFields, EMPTY_REPO_PROFILE } from "@/components/RepoProfileFields";
 import { useRepos } from "@/hooks/useTasks";
 import { createRepo, deleteRepo, pickRepoPath } from "@/lib/api";
 import { formatKSTDate } from "@/lib/time";
@@ -24,7 +23,6 @@ export function ReposScreen() {
   const [path, setPath] = useState("");
   const [defaultBranch, setDefaultBranch] = useState("main");
   const [createIfMissing, setCreateIfMissing] = useState(false);
-  const [profile, setProfile] = useState(EMPTY_REPO_PROFILE);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [browsing, setBrowsing] = useState(false);
@@ -57,13 +55,11 @@ export function ReposScreen() {
         path: normalizedPath,
         default_branch: defaultBranch.trim() || "main",
         create_if_missing: createIfMissing,
-        profile,
       });
       setName("");
       setPath("");
       setDefaultBranch("main");
       setCreateIfMissing(false);
-      setProfile(EMPTY_REPO_PROFILE);
       mutate();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create repo");
@@ -96,87 +92,73 @@ export function ReposScreen() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Repositories</h1>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg border p-6 space-y-6 max-w-none w-full">
-        <div className="flex flex-col xl:flex-row gap-8">
-          <div className="xl:w-1/4 space-y-6">
-            <h2 className="text-xl font-semibold">Register Repository</h2>
-            {error && (
-              <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error}</div>
-            )}
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  placeholder="my-project"
-                  className="w-full border rounded px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Default Branch</label>
-                <input
-                  type="text"
-                  value={defaultBranch}
-                  onChange={(e) => setDefaultBranch(e.target.value)}
-                  className="w-full border rounded px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Path (server local)</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={path}
-                    onChange={(e) => setPath(e.target.value)}
-                    onBlur={() => setPath((current) => normalizeRepoPath(current))}
-                    required
-                    placeholder="D:\\Python\\agent\\dashboard"
-                    className="flex-1 border rounded px-3 py-2 text-sm font-mono"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleBrowse}
-                    disabled={browsing || submitting}
-                    className="border rounded px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
-                  >
-                    {browsing ? "Opening..." : "Browse..."}
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  Pasted paths like <span className="font-mono text-blue-600">{'"D:\\Python\\agent\\dashboard"'}</span> are accepted.
-                </p>
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer pt-2 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={createIfMissing}
-                  onChange={(e) => setCreateIfMissing(e.target.checked)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                Create new folder and initialize Git (if path is missing)
-              </label>
-
-              <div className="pt-4">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-blue-600 text-white px-8 py-2.5 rounded text-sm font-medium hover:bg-blue-700 shadow-sm transition-colors disabled:opacity-50"
-                >
-                  {submitting ? "Registering..." : "Register Repo"}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex-1 xl:border-l xl:pl-8 space-y-6">
-            <RepoProfileFields value={profile} onChange={setProfile} />
-          </div>
+      <form onSubmit={handleSubmit} className="bg-white rounded-lg border p-4 space-y-4 max-w-lg">
+        <h2 className="text-lg font-semibold">Register Repository</h2>
+        {error && (
+          <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error}</div>
+        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            placeholder="my-project"
+            className="w-full border rounded px-3 py-2 text-sm"
+          />
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Path (server local)</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              onBlur={() => setPath((current) => normalizeRepoPath(current))}
+              required
+              placeholder="D:\\Python\\agent\\dashboard"
+              className="flex-1 border rounded px-3 py-2 text-sm font-mono"
+            />
+            <button
+              type="button"
+              onClick={handleBrowse}
+              disabled={browsing || submitting}
+              className="border rounded px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {browsing ? "Opening..." : "Browse..."}
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            Pasted paths like <span className="font-mono">{'"D:\\Python\\agent\\dashboard"'}</span>{" "}
+            are accepted.
+          </p>
+          <label className="flex items-center gap-2 cursor-pointer mt-3 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={createIfMissing}
+              onChange={(e) => setCreateIfMissing(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Create new folder and initialize Git (if path is missing)
+          </label>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Default Branch</label>
+          <input
+            type="text"
+            value={defaultBranch}
+            onChange={(e) => setDefaultBranch(e.target.value)}
+            className="w-full border rounded px-3 py-2 text-sm"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={submitting}
+          className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {submitting ? "Registering..." : "Register Repo"}
+        </button>
       </form>
 
       <div className="bg-white rounded-lg border overflow-hidden">

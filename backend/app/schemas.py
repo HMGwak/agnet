@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, field_validator
 
 from app.models import TaskStatus, WorkspaceKind
 
@@ -86,22 +86,13 @@ class RepoProfileDraft(BaseModel):
         return missing
 
 
-class RepoProfileCreate(RepoProfileDraft):
-    @model_validator(mode="after")
-    def validate_required_fields(self):
-        missing = self.missing_required_fields()
-        if missing:
-            raise ValueError("Missing repo profile fields: " + ", ".join(missing))
-        return self
-
-
 # --- Repo ---
 class RepoCreate(BaseModel):
     name: str
     path: str
     default_branch: str = "main"
     create_if_missing: bool = False
-    profile: RepoProfileCreate
+    profile: RepoProfileDraft | None = None
 
     @field_validator("path")
     @classmethod

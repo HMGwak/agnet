@@ -3,8 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.adapters.sqlite_store import SQLiteStore
-from app.core.repo_profile import write_repo_profile
-from app.schemas import RepoProfileCreate
+from app.schemas import RepoProfileDraft
 
 
 class RepoService:
@@ -19,7 +18,7 @@ class RepoService:
         path: str,
         default_branch: str,
         create_if_missing: bool = False,
-        profile: RepoProfileCreate | None = None,
+        profile: RepoProfileDraft | None = None,
     ):
         repo_path = Path(path)
         if not repo_path.is_dir():
@@ -32,9 +31,11 @@ class RepoService:
             await self.workspace_manager.ensure_repository(repo_path, default_branch)
 
         repo = await self.store.create_repo(db, name, str(repo_path), default_branch)
-        if profile is not None:
-            write_repo_profile(repo_path, profile)
-        await self.store.ensure_main_workspace(db, repo)
+        try:
+            await self.store.ensure_main_workspace(db, repo)
+        except Exception:
+            await self.store.delete_repo(db, repo)
+            raise
         return repo
 
     async def list_repos(self, db):

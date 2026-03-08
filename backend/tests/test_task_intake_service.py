@@ -315,3 +315,55 @@ async def test_analyze_persists_repo_profile_updates_from_request(tmp_path):
     assert agents_path.exists()
     assert 'package_manager = "uv"' in agents_path.read_text(encoding="utf-8")
     assert response.repo_profile_missing_fields == []
+
+
+@pytest.mark.asyncio
+async def test_analyze_without_repo_profile_input_does_not_rewrite_agents_file(tmp_path):
+    agents_path = tmp_path / "AGENTS.md"
+    agents_path.write_text(
+        """## Repo Profile
+```toml
+language = "Python"
+frameworks = ["FastAPI"]
+package_manager = "uv"
+dev_commands = ["uv sync --extra dev"]
+test_commands = ["uv run pytest"]
+build_commands = []
+lint_commands = []
+deploy_considerations = "Local only."
+main_branch_protection = "protected"
+deployment_sensitivity = "medium"
+environment_notes = []
+safety_rules = []
+```
+""",
+        encoding="utf-8",
+    )
+    original = agents_path.read_text(encoding="utf-8")
+    service = TaskIntakeService(
+        FakeStore(repo_path=str(tmp_path)),
+        FakeCodex(
+            {
+                "draft": {
+                    "workspace_mode": "new",
+                    "workspace_id": None,
+                    "new_workspace_name": "feature/tetris",
+                    "title": "Build Tetris",
+                    "description": "Create a standalone Tetris game implementation.",
+                    "blocked_by_task_id": None,
+                    "scheduled_for": None,
+                },
+                "questions": [],
+                "needs_confirmation": True,
+                "notes": [],
+            }
+        ),
+        make_policy(),
+    )
+
+    await service.analyze(
+        None,
+        TaskIntakeRequest(repo_id=3, user_request="테트리스 게임을 구현해줘."),
+    )
+
+    assert agents_path.read_text(encoding="utf-8") == original

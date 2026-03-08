@@ -7,12 +7,13 @@ from app.models import TaskStatus
 
 
 class FakeStore:
-    def __init__(self, repo=None, task=None):
+    def __init__(self, repo=None, task=None, ensure_main_workspace_error: Exception | None = None):
         self.repo = repo
         self.task = task
         self.deleted_repo = None
         self.main_workspace_created_for = None
         self.workspaces = []
+        self.ensure_main_workspace_error = ensure_main_workspace_error
 
     async def get_repo(self, db, repo_id: int):
         return self.repo
@@ -25,6 +26,8 @@ class FakeStore:
         return self.repo
 
     async def ensure_main_workspace(self, db, repo):
+        if self.ensure_main_workspace_error is not None:
+            raise self.ensure_main_workspace_error
         self.main_workspace_created_for = repo
 
     async def list_workspaces(self, db, repo_id: int):
@@ -48,18 +51,6 @@ class FakeWorkspaceManager:
     async def cleanup_worktree(self, repo_path, workspace_path):
         self.cleaned_paths.append((repo_path, workspace_path))
 
-
-def make_profile():
-    return {
-        "language": "Python",
-        "frameworks": ["FastAPI"],
-        "package_manager": "uv",
-        "dev_commands": ["uv sync --extra dev"],
-        "test_commands": ["uv run pytest"],
-        "deploy_considerations": "Local development first.",
-    }
-
-
 @pytest.mark.asyncio
 async def test_create_repo_initializes_main_workspace(tmp_path):
     service = RepoService(FakeStore(), workspace_manager=FakeWorkspaceManager())
@@ -69,17 +60,26 @@ async def test_create_repo_initializes_main_workspace(tmp_path):
         name="demo",
         path=str(tmp_path),
         default_branch="main",
-        profile=make_profile(),
     )
 
     assert repo.name == "demo"
     assert service.store.main_workspace_created_for is repo
-    agents_path = tmp_path / "AGENTS.md"
-    assert agents_path.exists()
-    content = agents_path.read_text(encoding="utf-8")
-    assert "## Repo Profile" in content
-    assert 'language = "Python"' in content
-    assert 'package_manager = "uv"' in content
+
+
+@pytest.mark.asyncio
+async def test_create_repo_deletes_repo_record_when_main_workspace_creation_fails(tmp_path):
+    store = FakeStore(ensure_main_workspace_error=RuntimeError("workspace setup failed"))
+    service = RepoService(store, workspace_manager=FakeWorkspaceManager())
+
+    with pytest.raises(RuntimeError, match="workspace setup failed"):
+        await service.create_repo(
+            db=None,
+            name="demo",
+            path=str(tmp_path),
+            default_branch="main",
+        )
+
+    assert store.deleted_repo is store.repo
 
 
 @pytest.mark.asyncio

@@ -42,7 +42,7 @@ export interface RepoCreate {
   path: string;
   default_branch?: string;
   create_if_missing?: boolean;
-  profile: RepoProfile;
+  profile?: RepoProfile;
 }
 
 export interface RepoPathPickResponse {
