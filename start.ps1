@@ -3,10 +3,11 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir = Join-Path $scriptDir "backend"
 $dashboardDir = Join-Path $scriptDir "dashboard"
-$sidecarDir = Join-Path $scriptDir "codex-sidecar"
-$logsDir = Join-Path $scriptDir "logs"
-$codexSdkDir = Join-Path $scriptDir ".codex-sdk"
-$codexHome = Join-Path $codexSdkDir "home"
+$runtimeCodexDir = Join-Path $scriptDir "runtime\codex"
+$sidecarDir = Join-Path $runtimeCodexDir "sidecar"
+$projectDir = Join-Path $scriptDir "project"
+$logsDir = Join-Path $projectDir "logs"
+$codexHome = Join-Path $projectDir "codex-home"
 $codexAuthFile = Join-Path $codexHome "auth.json"
 $codexConfigFile = Join-Path $codexHome "config.toml"
 $backendPort = 8001
@@ -102,8 +103,10 @@ if (Test-Path "package-lock.json") {
 }
 Pop-Location
 
+New-Item -ItemType Directory -Force -Path (Join-Path $projectDir "database") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $projectDir "repos") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $projectDir "workspaces") | Out-Null
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
-New-Item -ItemType Directory -Force -Path $codexSdkDir | Out-Null
 New-Item -ItemType Directory -Force -Path $codexHome | Out-Null
 $sessionId = Get-Date -Format "yyMMdd_HHmmss"
 $sessionLogsDir = Join-Path $logsDir $sessionId
@@ -120,7 +123,7 @@ Set-Content -Path $latestMarker -Value $sessionId
 if (-not (Test-Path $codexConfigFile)) {
     Set-Content -Path $codexConfigFile -Value "cli_auth_credentials_store = `"file`"`nforced_login_method = `"chatgpt`"`n"
 }
-Ensure-CodexAuth -AuthFile $codexAuthFile -LoginScript (Join-Path $scriptDir "codex-login.ps1")
+Ensure-CodexAuth -AuthFile $codexAuthFile -LoginScript (Join-Path $scriptDir "tools\codex-login.ps1")
 
 $npmCmd = (Get-Command "npm.cmd" -ErrorAction Stop).Source
 $env:SESSION_ID = $sessionId

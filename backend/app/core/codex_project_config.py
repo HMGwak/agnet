@@ -12,20 +12,31 @@ class CodexProjectConfigError(RuntimeError):
 
 @dataclass(frozen=True)
 class CodexProjectConfig:
-    project_dir: Path
+    contract_dir: Path
     config_path: Path
+    generated_dir: Path
     base_config: dict
     agent_files: dict[str, Path]
     rule_files: tuple[Path, ...] = ()
 
     @classmethod
-    def load_from_file(cls, config_path: Path) -> "CodexProjectConfig":
+    def load_from_file(
+        cls,
+        config_path: Path,
+        *,
+        generated_dir: Path | None = None,
+    ) -> "CodexProjectConfig":
+        config_path = config_path.resolve()
         if not config_path.exists():
             raise CodexProjectConfigError(f"Missing project Codex config: {config_path}")
 
-        config_dir = config_path.parent
+        contract_dir = config_path.parent
+        if generated_dir is None:
+            generated_dir = contract_dir.parent / "generated"
+        generated_dir = generated_dir.resolve()
+
         raw = _load_toml(config_path)
-        resolved = _resolve_path_values(raw, config_dir)
+        resolved = _resolve_path_values(raw, contract_dir)
         agents = resolved.get("agents")
         if not isinstance(agents, dict) or not agents:
             raise CodexProjectConfigError("Project Codex config must define at least one agent")
@@ -44,12 +55,13 @@ class CodexProjectConfig:
                 )
             agent_files[name] = agent_path
 
-        rules_dir = config_dir / "rules"
+        rules_dir = contract_dir / "rules"
         rule_files = tuple(sorted(rules_dir.glob("*.rules"))) if rules_dir.exists() else ()
 
         return cls(
-            project_dir=config_dir,
+            contract_dir=contract_dir,
             config_path=config_path,
+            generated_dir=generated_dir,
             base_config=resolved,
             agent_files=agent_files,
             rule_files=rule_files,
@@ -87,9 +99,8 @@ class CodexProjectConfig:
         if not content_parts:
             return config
 
-        generated_dir = self.project_dir / ".generated"
-        generated_dir.mkdir(parents=True, exist_ok=True)
-        generated_path = generated_dir / f"{agent_name}.md"
+        self.generated_dir.mkdir(parents=True, exist_ok=True)
+        generated_path = self.generated_dir / f"{agent_name}.md"
         generated_path.write_text(
             "\n\n".join(part for part in content_parts if part).strip() + "\n",
             encoding="utf-8",

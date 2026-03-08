@@ -10,13 +10,18 @@ build/
 # Node
 node_modules/
 .next/
+runtime/codex/sidecar/node_modules/
 
-# Runtime data
-database/*.db
-!database/.gitkeep
-logs/*.log
-!logs/.gitkeep
-workspaces/
+# Local project data
+project/*
+!project/.gitkeep
+
+# Runtime-generated Codex artifacts
+runtime/codex/generated/
+
+# Legacy local state during transition
+.codex-sdk/*
+!.codex-sdk/.gitkeep
 
 # Environment
 .env
@@ -35,19 +40,3 @@ Thumbs.db
 # Claude / internal tools
 .claude/
 .omx/
-.codex/*
-!.codex/config.toml
-!.codex/agents/
-!.codex/agents/**
-!.codex/instructions/
-!.codex/instructions/**
-!.codex/rules/
-!.codex/rules/**
-!.codex/environments/
-!.codex/environments/**
-.codex-sdk/*
-!.codex-sdk/.gitkeep
-
-# Test repos (local only)
-repos/*
-!repos/.gitkeep

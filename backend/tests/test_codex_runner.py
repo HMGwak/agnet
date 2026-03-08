@@ -52,9 +52,10 @@ def make_prompts():
 
 
 def make_project_config(tmp_path: Path) -> CodexProjectConfig:
-    project_dir = tmp_path / ".codex"
-    agent_dir = project_dir / "agents"
-    instructions_dir = project_dir / "instructions"
+    contract_dir = tmp_path / "runtime" / "codex" / "contract"
+    generated_dir = tmp_path / "runtime" / "codex" / "generated"
+    agent_dir = contract_dir / "agents"
+    instructions_dir = contract_dir / "instructions"
     agent_dir.mkdir(parents=True)
     instructions_dir.mkdir()
 
@@ -95,13 +96,33 @@ def make_project_config(tmp_path: Path) -> CodexProjectConfig:
         agent_files[name] = agent_file.resolve()
         base_config["agents"][name] = {"config_file": str(agent_file.resolve())}
 
-    config_path = project_dir / "config.toml"
+    config_path = contract_dir / "config.toml"
     config_path.write_text('model = "gpt-5.4"\n', encoding="utf-8")
     return CodexProjectConfig(
-        project_dir=project_dir.resolve(),
+        contract_dir=contract_dir.resolve(),
         config_path=config_path.resolve(),
+        generated_dir=generated_dir.resolve(),
         base_config=base_config,
         agent_files=agent_files,
+    )
+
+
+def make_sidecar_settings(tmp_path: Path) -> SimpleNamespace:
+    sidecar_dir = tmp_path / "runtime" / "codex" / "sidecar"
+    home_dir = tmp_path / "project" / "codex-home"
+    logs_dir = tmp_path / "project" / "logs"
+    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    return SimpleNamespace(
+        CODEX_HOME_DIR=home_dir,
+        CODEX_HOME_CONFIG_FILE=home_dir / "config.toml",
+        CODEX_AUTH_FILE=home_dir / "auth.json",
+        CODEX_SIDECAR_DIR=sidecar_dir,
+        CODEX_SIDECAR_ENTRYPOINT=sidecar_dir / "server.mjs",
+        CODEX_SIDECAR_HOST="127.0.0.1",
+        CODEX_SIDECAR_PORT=8765,
+        SESSION_LOGS_DIR=logs_dir / "session",
+        TASK_LOGS_DIR=logs_dir / "session" / "tasks",
+        SESSION_METADATA_FILE=logs_dir / "session" / "session.json",
     )
 
 
@@ -261,7 +282,7 @@ async def test_run_intake_returns_structured_payload(httpx_mock: HTTPXMock, tmp_
     post_request = httpx_mock.get_requests()[0]
     body = json.loads(post_request.content.decode("utf-8"))
     instructions_path = Path(body["config"]["model_instructions_file"])
-    assert instructions_path.parent.name == ".generated"
+    assert instructions_path.parent.name == "generated"
     assert instructions_path.name == "intake.md"
     assert "intake instructions" in instructions_path.read_text(encoding="utf-8")
     assert body["config"]["features"]["multi_agent"] is False
@@ -336,18 +357,14 @@ async def test_generate_plan_uses_project_prompt_library(httpx_mock: HTTPXMock, 
     body = json.loads(post_request.content.decode("utf-8"))
     assert body["prompt"] == "PLAN::Build Tetris"
     instructions_path = Path(body["config"]["model_instructions_file"])
-    assert instructions_path.parent.name == ".generated"
+    assert instructions_path.parent.name == "generated"
     assert instructions_path.name == "planner.md"
     assert "planner instructions" in instructions_path.read_text(encoding="utf-8")
     assert body["config"]["features"]["multi_agent"] is False
 
 
 def test_sidecar_manager_allowlist_env_does_not_forward_global_auth(tmp_path, monkeypatch):
-    settings = SimpleNamespace(
-        CODEX_SDK_HOME=tmp_path / "home",
-        CODEX_SDK_CONFIG_FILE=tmp_path / "home" / "config.toml",
-        CODEX_SDK_AUTH_FILE=tmp_path / "home" / "auth.json",
-    )
+    settings = make_sidecar_settings(tmp_path)
     manager = CodexSidecarManager(settings)
 
     monkeypatch.setenv("OPENAI_API_KEY", "should-not-leak")
@@ -356,20 +373,80 @@ def test_sidecar_manager_allowlist_env_does_not_forward_global_auth(tmp_path, mo
 
     env = manager._allowlist_env()
 
-    assert env["CODEX_HOME"] == str(settings.CODEX_SDK_HOME)
+    assert env["CODEX_HOME"] == str(settings.CODEX_HOME_DIR)
     assert "OPENAI_API_KEY" not in env
-    assert env["HOME"] == str(settings.CODEX_SDK_HOME)
+    assert env["HOME"] == str(settings.CODEX_HOME_DIR)
 
 
 def test_sidecar_manager_writes_project_local_oauth_config(tmp_path):
-    settings = SimpleNamespace(
-        CODEX_SDK_HOME=tmp_path / "home",
-        CODEX_SDK_CONFIG_FILE=tmp_path / "home" / "config.toml",
-        CODEX_SDK_AUTH_FILE=tmp_path / "home" / "auth.json",
-    )
+    settings = make_sidecar_settings(tmp_path)
     manager = CodexSidecarManager(settings)
 
     manager._ensure_runtime_files()
 
-    assert settings.CODEX_SDK_CONFIG_FILE.exists()
-    assert 'forced_login_method = "chatgpt"' in settings.CODEX_SDK_CONFIG_FILE.read_text(encoding="utf-8")
+    assert settings.CODEX_HOME_CONFIG_FILE.exists()
+    assert 'forced_login_method = "chatgpt"' in settings.CODEX_HOME_CONFIG_FILE.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_sidecar_manager_start_rejects_non_local_codex_path(tmp_path, monkeypatch):
+    settings = make_sidecar_settings(tmp_path)
+    manager = CodexSidecarManager(settings)
+    external_path = (tmp_path / "external" / "codex.exe").resolve()
+
+    async def fake_health():
+        return True, "READY", {
+            "status": "READY",
+            "codexPath": str(external_path),
+            "runtimeHome": str(settings.CODEX_HOME_DIR),
+        }
+
+    monkeypatch.setattr(manager, "_health", fake_health)
+
+    with pytest.raises(RuntimeError, match="repository-local Codex runtime"):
+        await manager.start()
+
+
+@pytest.mark.asyncio
+async def test_sidecar_manager_start_rejects_non_local_runtime_home(tmp_path, monkeypatch):
+    settings = make_sidecar_settings(tmp_path)
+    manager = CodexSidecarManager(settings)
+    local_codex_path = (
+        settings.CODEX_SIDECAR_DIR / "node_modules" / ".bin" / "codex.cmd"
+    ).resolve()
+    wrong_runtime_home = (tmp_path / "other-home").resolve()
+
+    async def fake_health():
+        return True, "READY", {
+            "status": "READY",
+            "codexPath": str(local_codex_path),
+            "runtimeHome": str(wrong_runtime_home),
+        }
+
+    monkeypatch.setattr(manager, "_health", fake_health)
+
+    with pytest.raises(RuntimeError, match="repository-local runtime home"):
+        await manager.start()
+
+
+def test_sidecar_manager_updates_session_metadata_with_runtime_details(tmp_path):
+    settings = make_sidecar_settings(tmp_path)
+    manager = CodexSidecarManager(settings)
+    settings.SESSION_METADATA_FILE.parent.mkdir(parents=True)
+    settings.SESSION_METADATA_FILE.write_text(
+        json.dumps({"session_id": "260308_120000", "processes": {}}),
+        encoding="utf-8",
+    )
+    manager.process = SimpleNamespace(pid=4321)
+    codex_path = str(
+        (settings.CODEX_SIDECAR_DIR / "node_modules" / ".bin" / "codex.cmd").resolve()
+    )
+
+    manager._update_session_metadata(
+        {"codexPath": codex_path, "runtimeHome": str(settings.CODEX_HOME_DIR)}
+    )
+
+    metadata = json.loads(settings.SESSION_METADATA_FILE.read_text(encoding="utf-8"))
+    assert metadata["processes"]["sidecar"] == 4321
+    assert metadata["codex_path"] == codex_path
+    assert metadata["runtime_home"] == str(settings.CODEX_HOME_DIR)

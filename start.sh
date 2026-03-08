@@ -4,10 +4,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$SCRIPT_DIR/backend"
 DASHBOARD_DIR="$SCRIPT_DIR/dashboard"
-SIDECAR_DIR="$SCRIPT_DIR/codex-sidecar"
-LOGS_DIR="$SCRIPT_DIR/logs"
-CODEX_SDK_DIR="$SCRIPT_DIR/.codex-sdk"
-CODEX_HOME_DIR="$CODEX_SDK_DIR/home"
+RUNTIME_CODEX_DIR="$SCRIPT_DIR/runtime/codex"
+SIDECAR_DIR="$RUNTIME_CODEX_DIR/sidecar"
+PROJECT_DIR="$SCRIPT_DIR/project"
+LOGS_DIR="$PROJECT_DIR/logs"
+CODEX_HOME_DIR="$PROJECT_DIR/codex-home"
 CODEX_AUTH_FILE="$CODEX_HOME_DIR/auth.json"
 CODEX_CONFIG_FILE="$CODEX_HOME_DIR/config.toml"
 VENV_PYTHON=""
@@ -120,6 +121,7 @@ else
   npm install
 fi
 
+mkdir -p "$PROJECT_DIR/database" "$PROJECT_DIR/repos" "$PROJECT_DIR/workspaces"
 mkdir -p "$CODEX_HOME_DIR"
 mkdir -p "$SESSION_LOGS_DIR" "$TASK_LOGS_DIR"
 printf "%s\n" "$SESSION_ID" > "$LATEST_MARKER"
@@ -130,7 +132,7 @@ forced_login_method = "chatgpt"
 EOF
 fi
 
-ensure_codex_auth "$CODEX_AUTH_FILE" "$SCRIPT_DIR/codex-login.sh"
+ensure_codex_auth "$CODEX_AUTH_FILE" "$SCRIPT_DIR/tools/codex-login.sh"
 
 cd "$BACKEND_DIR"
 SESSION_ID="$SESSION_ID" SESSION_LOGS_DIR="$SESSION_LOGS_DIR" "$VENV_PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" >"$BACKEND_OUT_LOG" 2>"$BACKEND_ERR_LOG" &

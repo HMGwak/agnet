@@ -18,11 +18,11 @@ class CodexSidecarManager:
         self._stderr_handle = None
 
     def _ensure_runtime_files(self) -> None:
-        runtime_home = self.settings.CODEX_SDK_HOME
+        runtime_home = self.settings.CODEX_HOME_DIR
         runtime_home.mkdir(parents=True, exist_ok=True)
         (runtime_home / "AppData" / "Roaming").mkdir(parents=True, exist_ok=True)
         (runtime_home / "AppData" / "Local").mkdir(parents=True, exist_ok=True)
-        config_file = self.settings.CODEX_SDK_CONFIG_FILE
+        config_file = self.settings.CODEX_HOME_CONFIG_FILE
         config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text(
             'cli_auth_credentials_store = "file"\nforced_login_method = "chatgpt"\n',
@@ -46,20 +46,64 @@ class CodexSidecarManager:
                 handle.close()
                 setattr(self, handle_attr, None)
 
-    def _update_session_metadata(self) -> None:
+    def _update_session_metadata(self, health: dict[str, object] | None = None) -> None:
         metadata_path = self.settings.SESSION_METADATA_FILE
-        if not metadata_path.exists() or self.process is None:
+        if not metadata_path.exists():
             return
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             return
         metadata.setdefault("processes", {})
-        metadata["processes"]["sidecar"] = self.process.pid
+        if self.process is not None:
+            metadata["processes"]["sidecar"] = self.process.pid
+        if isinstance(health, dict):
+            codex_path = health.get("codexPath")
+            runtime_home = health.get("runtimeHome")
+            if isinstance(codex_path, str):
+                metadata["codex_path"] = codex_path
+            if isinstance(runtime_home, str):
+                metadata["runtime_home"] = runtime_home
         metadata_path.write_text(
             json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+    def _is_local_codex_path(self, codex_path: str | None) -> bool:
+        if not codex_path:
+            return False
+        try:
+            return Path(codex_path).resolve().is_relative_to(
+                self.settings.CODEX_SIDECAR_DIR.resolve()
+            )
+        except OSError:
+            return False
+
+    def _uses_expected_runtime_home(self, runtime_home: str | None) -> bool:
+        if not runtime_home:
+            return False
+        try:
+            return Path(runtime_home).resolve() == self.settings.CODEX_HOME_DIR.resolve()
+        except OSError:
+            return False
+
+    def _validate_ready_payload(self, body: dict[str, object] | None) -> None:
+        if not isinstance(body, dict):
+            raise RuntimeError("Codex sidecar health check returned an invalid payload")
+
+        codex_path = body.get("codexPath")
+        if not isinstance(codex_path, str) or not self._is_local_codex_path(codex_path):
+            raise RuntimeError(
+                "Codex sidecar is not using the repository-local Codex runtime"
+            )
+
+        runtime_home = body.get("runtimeHome")
+        if not isinstance(runtime_home, str) or not self._uses_expected_runtime_home(
+            runtime_home
+        ):
+            raise RuntimeError(
+                "Codex sidecar is not using the repository-local runtime home"
+            )
 
     def _allowlist_env(self) -> dict[str, str]:
         env: dict[str, str] = {}
@@ -68,7 +112,7 @@ class CodexSidecarManager:
             if value:
                 env[key] = value
 
-        runtime_home = self.settings.CODEX_SDK_HOME
+        runtime_home = self.settings.CODEX_HOME_DIR
         runtime_home.mkdir(parents=True, exist_ok=True)
         env["HOME"] = str(runtime_home)
         env["USERPROFILE"] = str(runtime_home)
@@ -89,20 +133,24 @@ class CodexSidecarManager:
 
         return env
 
-    async def _health(self) -> tuple[bool, str | None]:
+    async def _health(self) -> tuple[bool, str | None, dict[str, object] | None]:
         url = f"http://{self.settings.CODEX_SIDECAR_HOST}:{self.settings.CODEX_SIDECAR_PORT}/health"
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 response = await client.get(url)
             body = response.json()
+            if not isinstance(body, dict):
+                return False, None, None
             status = body.get("status")
-            return status == "READY", status
+            return status == "READY", status, body
         except Exception:
-            return False, None
+            return False, None, None
 
     async def start(self):
-        healthy, _ = await self._health()
+        healthy, _, body = await self._health()
         if healthy:
+            self._validate_ready_payload(body)
+            self._update_session_metadata(body)
             return
 
         node = shutil.which("node")
@@ -119,7 +167,7 @@ class CodexSidecarManager:
             str(self.settings.CODEX_SIDECAR_ENTRYPOINT),
             f"--host={self.settings.CODEX_SIDECAR_HOST}",
             f"--port={self.settings.CODEX_SIDECAR_PORT}",
-            f"--runtime-home={self.settings.CODEX_SDK_HOME}",
+            f"--runtime-home={self.settings.CODEX_HOME_DIR}",
             cwd=str(self.settings.CODEX_SIDECAR_DIR),
             env=env,
             stdout=stdout_handle,
@@ -132,13 +180,19 @@ class CodexSidecarManager:
             if self.process.returncode is not None:
                 self._close_log_handles()
                 raise RuntimeError("Codex sidecar exited during startup")
-            healthy, status = await self._health()
+            healthy, status, body = await self._health()
             if healthy:
+                try:
+                    self._validate_ready_payload(body)
+                except RuntimeError:
+                    await self.stop()
+                    raise
+                self._update_session_metadata(body)
                 return
             if status == "AUTH_REQUIRED":
                 await self.stop()
                 raise RuntimeError(
-                    f"Project-local Codex OAuth login is required. Run codex-login and sign in to create {self.settings.CODEX_SDK_AUTH_FILE}."
+                    f"Project-local Codex OAuth login is required. Run tools/codex-login and sign in to create {self.settings.CODEX_AUTH_FILE}."
                 )
             await asyncio.sleep(0.2)
 

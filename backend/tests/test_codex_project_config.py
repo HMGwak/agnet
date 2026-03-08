@@ -5,10 +5,10 @@ import pytest
 from app.core.codex_project_config import CodexProjectConfig, CodexProjectConfigError
 
 
-def write_project_config(project_dir: Path) -> Path:
-    agent_dir = project_dir / "agents"
-    instruction_dir = project_dir / "instructions"
-    rules_dir = project_dir / "rules"
+def write_project_config(contract_dir: Path) -> Path:
+    agent_dir = contract_dir / "agents"
+    instruction_dir = contract_dir / "instructions"
+    rules_dir = contract_dir / "rules"
     agent_dir.mkdir(parents=True)
     instruction_dir.mkdir()
     rules_dir.mkdir()
@@ -28,7 +28,7 @@ def write_project_config(project_dir: Path) -> Path:
         ),
         encoding="utf-8",
     )
-    config_path = project_dir / "config.toml"
+    config_path = contract_dir / "config.toml"
     config_path.write_text(
         "\n".join(
             [
@@ -47,15 +47,17 @@ def write_project_config(project_dir: Path) -> Path:
 
 
 def test_load_from_file_resolves_relative_agent_paths(tmp_path):
-    config_path = write_project_config(tmp_path / ".codex")
+    contract_dir = tmp_path / "runtime" / "codex" / "contract"
+    generated_dir = tmp_path / "runtime" / "codex" / "generated"
+    config_path = write_project_config(contract_dir)
 
-    project_config = CodexProjectConfig.load_from_file(config_path)
+    project_config = CodexProjectConfig.load_from_file(config_path, generated_dir=generated_dir)
     planner_config = project_config.build_agent_config("planner")
 
     assert project_config.agent_files["planner"].is_absolute()
     assert planner_config["model"] == "gpt-5.4"
     instructions_path = Path(planner_config["model_instructions_file"])
-    assert instructions_path.parent.name == ".generated"
+    assert instructions_path.parent == generated_dir.resolve()
     assert instructions_path.name == "planner.md"
     rendered = instructions_path.read_text(encoding="utf-8")
     assert "Project rules:" in rendered
@@ -65,8 +67,10 @@ def test_load_from_file_resolves_relative_agent_paths(tmp_path):
 
 
 def test_build_agent_config_raises_for_unknown_agent(tmp_path):
-    config_path = write_project_config(tmp_path / ".codex")
-    project_config = CodexProjectConfig.load_from_file(config_path)
+    contract_dir = tmp_path / "runtime" / "codex" / "contract"
+    generated_dir = tmp_path / "runtime" / "codex" / "generated"
+    config_path = write_project_config(contract_dir)
+    project_config = CodexProjectConfig.load_from_file(config_path, generated_dir=generated_dir)
 
     with pytest.raises(CodexProjectConfigError, match="Unknown project Codex agent"):
         project_config.build_agent_config("reviewer")

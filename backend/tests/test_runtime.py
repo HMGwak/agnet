@@ -7,6 +7,7 @@ from app.core.codex_project_config import CodexProjectConfigError
 
 
 def write_policy(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "\n".join(
             [
@@ -35,39 +36,45 @@ def write_policy(path: Path) -> None:
 
 
 def write_prompts(directory: Path) -> None:
-    directory.mkdir(parents=True)
+    directory.mkdir(parents=True, exist_ok=True)
     for name in ("plan", "critique", "implement", "test", "review"):
         (directory / f"{name}.md").write_text(f"{name}: $task_input", encoding="utf-8")
 
 
 def patch_runtime_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    policy_path = tmp_path / "codex-policy.toml"
-    prompts_dir = tmp_path / "prompts"
-    workspaces_dir = tmp_path / "workspaces"
-    logs_dir = tmp_path / "logs"
+    runtime_codex_dir = tmp_path / "runtime" / "codex"
+    contract_dir = runtime_codex_dir / "contract"
+    generated_dir = runtime_codex_dir / "generated"
+    policy_path = runtime_codex_dir / "policy.toml"
+    prompts_dir = runtime_codex_dir / "prompts"
+    project_dir = tmp_path / "project"
+    workspaces_dir = project_dir / "workspaces"
+    logs_dir = project_dir / "logs"
     session_logs_dir = logs_dir / "260308_120000"
     write_policy(policy_path)
     write_prompts(prompts_dir)
-    workspaces_dir.mkdir()
-    session_logs_dir.mkdir(parents=True)
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    workspaces_dir.mkdir(parents=True, exist_ok=True)
+    session_logs_dir.mkdir(parents=True, exist_ok=True)
     for name, value in (
+        ("PROJECT_DATA_DIR", project_dir),
         ("CODEX_POLICY_FILE", policy_path),
         ("CODEX_PROMPTS_DIR", prompts_dir),
+        ("CODEX_GENERATED_DIR", generated_dir),
         ("WORKSPACES_DIR", workspaces_dir),
         ("LOGS_DIR", logs_dir),
         ("SESSION_ID", "260308_120000"),
         ("SESSION_LOGS_DIR", session_logs_dir),
     ):
         monkeypatch.setattr(runtime_module.settings, name, value)
-    return tmp_path / ".codex"
+    return contract_dir
 
 
 def test_runtime_task_logger_uses_session_logs_dir(tmp_path, monkeypatch):
-    project_dir = patch_runtime_settings(monkeypatch, tmp_path)
-    project_dir.mkdir()
-    config_dir = project_dir / "agents"
-    instructions_dir = project_dir / "instructions"
-    rules_dir = project_dir / "rules"
+    contract_dir = patch_runtime_settings(monkeypatch, tmp_path)
+    config_dir = contract_dir / "agents"
+    instructions_dir = contract_dir / "instructions"
+    rules_dir = contract_dir / "rules"
     config_dir.mkdir(parents=True)
     instructions_dir.mkdir(parents=True)
     rules_dir.mkdir(parents=True)
@@ -78,7 +85,7 @@ def test_runtime_task_logger_uses_session_logs_dir(tmp_path, monkeypatch):
             f'model = "gpt-5.4"\nmodel_instructions_file = "../instructions/{name}.md"\n',
             encoding="utf-8",
         )
-    (project_dir / "config.toml").write_text(
+    (contract_dir / "config.toml").write_text(
         "\n".join(
             [
                 'model = "gpt-5.4"',
@@ -104,7 +111,7 @@ def test_runtime_task_logger_uses_session_logs_dir(tmp_path, monkeypatch):
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(runtime_module.settings, "CODEX_PROJECT_DIR", project_dir)
+    monkeypatch.setattr(runtime_module.settings, "CODEX_CONTRACT_DIR", contract_dir)
 
     runtime = runtime_module.create_runtime()
 
@@ -112,18 +119,18 @@ def test_runtime_task_logger_uses_session_logs_dir(tmp_path, monkeypatch):
 
 
 def test_create_runtime_fails_when_project_codex_config_is_missing(tmp_path, monkeypatch):
-    project_dir = patch_runtime_settings(monkeypatch, tmp_path)
-    monkeypatch.setattr(runtime_module.settings, "CODEX_PROJECT_DIR", project_dir)
+    contract_dir = patch_runtime_settings(monkeypatch, tmp_path)
+    monkeypatch.setattr(runtime_module.settings, "CODEX_CONTRACT_DIR", contract_dir)
 
     with pytest.raises(CodexProjectConfigError, match="Missing project Codex config"):
         runtime_module.create_runtime()
 
 
 def test_create_runtime_fails_when_project_codex_config_is_invalid(tmp_path, monkeypatch):
-    project_dir = patch_runtime_settings(monkeypatch, tmp_path)
-    project_dir.mkdir()
-    (project_dir / "config.toml").write_text("[agents.planner\n", encoding="utf-8")
-    monkeypatch.setattr(runtime_module.settings, "CODEX_PROJECT_DIR", project_dir)
+    contract_dir = patch_runtime_settings(monkeypatch, tmp_path)
+    contract_dir.mkdir(parents=True, exist_ok=True)
+    (contract_dir / "config.toml").write_text("[agents.planner\n", encoding="utf-8")
+    monkeypatch.setattr(runtime_module.settings, "CODEX_CONTRACT_DIR", contract_dir)
 
     with pytest.raises(CodexProjectConfigError, match="Invalid TOML"):
         runtime_module.create_runtime()

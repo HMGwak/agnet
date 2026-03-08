@@ -7,7 +7,9 @@ This repository has two main apps:
 - `backend/tests/`: pytest suite for backend behavior, currently centered on Git/worktree flows.
 - `dashboard/`: Next.js App Router frontend. Routes live in `dashboard/src/app/`, reusable UI in `dashboard/src/components/`, and client helpers in `dashboard/src/lib/` and `dashboard/src/hooks/`.
 - `docs/`: architecture and design references for local implementation decisions.
-- Runtime directories such as `logs/`, `repos/`, `workspaces/`, and `database/` are kept at the repo root.
+- `runtime/`: repository-managed tool assets, including the local Codex contract, policy, prompts, and sidecar runtime.
+- `project/`: local personal data such as auth caches, database files, repos, workspaces, and logs.
+- `tools/`: local helper scripts such as Codex login and contract recovery commands.
 
 ## Architecture Principles
 Treat `openai/symphony` as a specification reference, not as a code dependency to wrap directly. Keep local code split into:
@@ -42,7 +44,9 @@ Match the current history: short, imperative commit subjects such as `Add Window
 Pull requests should include a concise summary, the affected area (`backend`, `dashboard`, or both), validation commands run, and screenshots for visible dashboard changes. Link related issues or task IDs when available.
 
 ## Security & Configuration Tips
-Do not commit real repository data, logs, or local database files. Keep local settings aligned with `http://localhost:3000` to match the backend CORS configuration during development.
+Do not commit real repository data, logs, local database files, or auth state. Keep local settings aligned with `http://localhost:3000` to match the backend CORS configuration during development.
+The app runtime is expected to use the repository-local Codex runtime under `runtime/codex/sidecar/` with all personal Codex state under `project/codex-home/`; invoking `codex` directly from a shell is a separate concern and is not the app runtime.
+The Codex contract source of truth is [`runtime/codex/contract/codex-contract.toml`](/D:/Python/agent/runtime/codex/contract/codex-contract.toml). Update that manifest, then run `python tools/codex_contract.py apply` to regenerate managed files and `python tools/codex_contract.py verify` to check drift.
 
 ## Orchestrator (Team Lead) Defaults
 You are the orchestrator: act like a strong team lead with a high-performing sub-agent team.

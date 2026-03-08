@@ -49,7 +49,10 @@ class AppRuntime:
 def create_runtime() -> AppRuntime:
     policy = load_project_policy(settings.CODEX_POLICY_FILE)
     prompts = PromptLibrary.load_from_directory(settings.CODEX_PROMPTS_DIR)
-    codex_project = CodexProjectConfig.load_from_file(settings.CODEX_PROJECT_CONFIG_FILE)
+    codex_project = CodexProjectConfig.load_from_file(
+        settings.CODEX_CONTRACT_CONFIG_FILE,
+        generated_dir=settings.CODEX_GENERATED_DIR,
+    )
     git_mgr = GitManager(settings.WORKSPACES_DIR)
     sidecar = CodexSidecarManager(settings)
     codex = CodexRunner(

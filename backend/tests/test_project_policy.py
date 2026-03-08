@@ -58,7 +58,9 @@ def test_prompt_library_fails_when_required_template_missing(tmp_path):
 
 
 def test_main_classification_is_deterministic():
-    policy = load_project_policy(Path(__file__).resolve().parents[2] / "codex-policy.toml")
+    policy = load_project_policy(
+        Path(__file__).resolve().parents[2] / "runtime" / "codex" / "policy.toml"
+    )
 
     assert classify_main_workspace_request(policy, "Fix regression", "") == "hotfix"
     assert classify_main_workspace_request(policy, "Review task board", "") == "plan_review"
