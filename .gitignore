@@ -16,8 +16,7 @@ database/*.db
 !database/.gitkeep
 logs/*.log
 !logs/.gitkeep
-workspaces/*
-!workspaces/.gitkeep
+workspaces/
 
 # Environment
 .env
