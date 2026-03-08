@@ -8,7 +8,7 @@ This repository has two main apps:
 - `dashboard/`: Next.js App Router frontend. Routes live in `dashboard/src/app/`, reusable UI in `dashboard/src/components/`, and client helpers in `dashboard/src/lib/` and `dashboard/src/hooks/`.
 - `docs/`: architecture and design references for local implementation decisions.
 - `runtime/`: repository-managed tool assets, including the local Codex contract, policy, prompts, and sidecar runtime.
-- `project/`: local personal data such as auth caches, database files, repos, workspaces, and logs.
+- `project/`: local personal data such as database files, repos, workspaces, and logs.
 - `tools/`: local helper scripts such as Codex login and contract recovery commands.
 
 ## Architecture Principles
@@ -45,7 +45,7 @@ Pull requests should include a concise summary, the affected area (`backend`, `d
 
 ## Security & Configuration Tips
 Do not commit real repository data, logs, local database files, or auth state. Keep local settings aligned with `http://localhost:3000` to match the backend CORS configuration during development.
-The app runtime is expected to use the repository-local Codex runtime under `runtime/codex/sidecar/` with app-local Codex state under `project/app-codex-home/`; invoking `codex` directly from a shell is a separate concern and is not the app runtime.
+The app runtime is expected to use the repository-local Codex runtime under `runtime/codex/sidecar/` with repository-local Codex state under `runtime/codex/home/`; invoking `codex` directly from a shell is a separate concern and is not the app runtime.
 The Codex contract source of truth is [`runtime/codex/contract/codex-contract.toml`](/D:/Python/agent/runtime/codex/contract/codex-contract.toml). Update that manifest, then run `python tools/codex_contract.py apply` to regenerate managed files and `python tools/codex_contract.py verify` to check drift.
 
 ## Orchestrator (Team Lead) Defaults

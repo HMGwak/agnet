@@ -3,7 +3,7 @@ import contextlib
 import os
 import stat
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from app.core.policies import slugify
 
@@ -102,6 +102,49 @@ class GitManager:
         repo_dir = self._segment("repo", repo_id, repo_name)
         return self.workspaces_dir / repo_dir / workspace_dir
 
+    def _is_ignored_workspace_artifact(self, path: str) -> bool:
+        parts = PurePosixPath(path.replace("\\", "/")).parts
+        if not parts:
+            return False
+        first = parts[0]
+        return len(first) > 2 and first.startswith("%") and first.endswith("%")
+
+    async def _list_changed_paths(self, workspace_path: Path) -> list[str]:
+        rc, out, err = await self._run_git(
+            "-C",
+            str(workspace_path),
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "-z",
+        )
+        if rc != 0:
+            raise RuntimeError(f"Failed to inspect worktree changes: {err.strip()}")
+
+        paths: list[str] = []
+        entries = out.split("\0")
+        index = 0
+        while index < len(entries):
+            entry = entries[index]
+            if not entry:
+                index += 1
+                continue
+
+            status = entry[:2]
+            path = entry[3:] if len(entry) > 3 else ""
+            if (status[0] in {"R", "C"} or status[1] in {"R", "C"}) and index + 1 < len(entries):
+                next_path = entries[index + 1]
+                if next_path:
+                    path = next_path
+                    index += 1
+
+            if path and not self._is_ignored_workspace_artifact(path):
+                paths.append(path)
+
+            index += 1
+
+        return paths
+
     async def create_worktree(
         self,
         repo_path: Path,
@@ -153,16 +196,33 @@ class GitManager:
         return out
 
     async def has_working_tree_changes(self, workspace_path: Path) -> bool:
+        return bool(await self._list_changed_paths(workspace_path))
+
+    async def commit_workspace_changes(self, workspace_path: Path, message: str) -> bool:
+        paths = await self._list_changed_paths(workspace_path)
+        if not paths:
+            return False
+
+        await self._ensure_identity(workspace_path)
+
+        rc, _, err = await self._run_git("-C", str(workspace_path), "add", "--", *paths)
+        if rc != 0:
+            raise RuntimeError(f"Failed to stage workspace changes: {err.strip()}")
+
         rc, out, err = await self._run_git(
             "-C",
             str(workspace_path),
-            "status",
-            "--short",
-            "--untracked-files=all",
+            "commit",
+            "-m",
+            message,
         )
         if rc != 0:
-            raise RuntimeError(f"Failed to inspect worktree changes: {err.strip()}")
-        return bool(out.strip())
+            combined = "\n".join(part for part in (out.strip(), err.strip()) if part).strip()
+            if "nothing to commit" in combined.lower():
+                return False
+            raise RuntimeError(f"Failed to create workspace commit: {combined}")
+
+        return True
 
     async def merge_to_main(
         self,

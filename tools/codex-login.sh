@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SIDECAR_DIR="$REPO_DIR/runtime/codex/sidecar"
-CODEX_HOME_DIR="$REPO_DIR/project/app-codex-home"
+CODEX_HOME_DIR="$REPO_DIR/runtime/codex/home"
 APPDATA_DIR="$CODEX_HOME_DIR/AppData/Roaming"
 LOCALAPPDATA_DIR="$CODEX_HOME_DIR/AppData/Local"
 CONFIG_FILE="$CODEX_HOME_DIR/config.toml"
@@ -50,4 +50,4 @@ if [ ! -f "$CODEX_HOME_DIR/auth.json" ]; then
   exit 1
 fi
 
-echo "Project-local Codex OAuth login complete: $CODEX_HOME_DIR/auth.json"
+echo "Repository-local Codex OAuth login complete: $CODEX_HOME_DIR/auth.json"

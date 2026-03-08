@@ -18,6 +18,8 @@ project/*
 
 # Runtime-generated Codex artifacts
 runtime/codex/generated/
+runtime/codex/home/*
+!runtime/codex/home/.gitkeep
 
 # Legacy local state during transition
 .codex-sdk/*

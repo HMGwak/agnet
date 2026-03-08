@@ -112,7 +112,7 @@ def make_project_config(tmp_path: Path) -> CodexProjectConfig:
 def make_sidecar_settings(tmp_path: Path) -> SimpleNamespace:
     sidecar_dir = tmp_path / "runtime" / "codex" / "sidecar"
     project_dir = tmp_path / "project"
-    home_dir = project_dir / "app-codex-home"
+    home_dir = tmp_path / "runtime" / "codex" / "home"
     logs_dir = tmp_path / "project" / "logs"
     sidecar_dir.mkdir(parents=True, exist_ok=True)
     return SimpleNamespace(
@@ -461,7 +461,7 @@ def test_sidecar_manager_allowlist_env_does_not_forward_global_auth(tmp_path, mo
     assert env["HOME"] == str(settings.CODEX_HOME_DIR)
 
 
-def test_sidecar_manager_writes_project_local_oauth_config(tmp_path):
+def test_sidecar_manager_writes_repository_local_oauth_config(tmp_path):
     settings = make_sidecar_settings(tmp_path)
     manager = CodexSidecarManager(settings)
 
@@ -471,7 +471,21 @@ def test_sidecar_manager_writes_project_local_oauth_config(tmp_path):
     assert 'forced_login_method = "chatgpt"' in settings.CODEX_HOME_CONFIG_FILE.read_text(encoding="utf-8")
 
 
-def test_sidecar_manager_migrates_legacy_auth_into_app_local_runtime_home(tmp_path):
+def test_sidecar_manager_migrates_project_app_auth_into_repository_local_runtime_home(tmp_path):
+    settings = make_sidecar_settings(tmp_path)
+    manager = CodexSidecarManager(settings)
+    legacy_home = settings.PROJECT_DATA_DIR / "app-codex-home"
+    legacy_home.mkdir(parents=True, exist_ok=True)
+    legacy_auth = legacy_home / "auth.json"
+    legacy_auth.write_text('{"access_token":"legacy-app"}', encoding="utf-8")
+
+    manager._ensure_runtime_files()
+
+    assert settings.CODEX_AUTH_FILE.exists()
+    assert settings.CODEX_AUTH_FILE.read_text(encoding="utf-8") == '{"access_token":"legacy-app"}'
+
+
+def test_sidecar_manager_migrates_project_legacy_auth_when_app_auth_is_missing(tmp_path):
     settings = make_sidecar_settings(tmp_path)
     manager = CodexSidecarManager(settings)
     legacy_home = settings.PROJECT_DATA_DIR / "codex-home"

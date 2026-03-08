@@ -38,7 +38,14 @@ export function MergeApproval({ taskId, diffText, onApproved }: Props) {
         Merge Approval Required
       </h3>
       <div className="mb-3">
-        <DiffViewer diff={diffText} />
+        {diffText.trim() ? (
+          <DiffViewer diff={diffText} />
+        ) : (
+          <div className="rounded-md border border-yellow-200 bg-white/70 px-3 py-2 text-sm text-yellow-900">
+            No diff snapshot was captured for this task. Approving will still merge the workspace
+            branch changes into the base branch.
+          </div>
+        )}
       </div>
       <textarea
         value={comment}

@@ -28,23 +28,33 @@ class CodexSidecarManager:
             'cli_auth_credentials_store = "file"\nforced_login_method = "chatgpt"\n',
             encoding="utf-8",
         )
-        legacy_auth = self._legacy_auth_file()
-        if legacy_auth and legacy_auth.exists() and not self.settings.CODEX_AUTH_FILE.exists():
-            shutil.copy2(legacy_auth, self.settings.CODEX_AUTH_FILE)
+        if not self.settings.CODEX_AUTH_FILE.exists():
+            for legacy_auth in self._legacy_auth_files():
+                if legacy_auth.exists():
+                    shutil.copy2(legacy_auth, self.settings.CODEX_AUTH_FILE)
+                    break
         self.settings.SESSION_LOGS_DIR.mkdir(parents=True, exist_ok=True)
         self.settings.TASK_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-    def _legacy_auth_file(self) -> Path | None:
+    def _legacy_auth_files(self) -> list[Path]:
         project_data_dir = getattr(self.settings, "PROJECT_DATA_DIR", None)
         if not isinstance(project_data_dir, Path):
-            return None
-        legacy_home = project_data_dir / "codex-home"
-        try:
-            if legacy_home.resolve() == self.settings.CODEX_HOME_DIR.resolve():
-                return None
-        except OSError:
-            return None
-        return legacy_home / "auth.json"
+            return []
+
+        candidates = [
+            project_data_dir / "app-codex-home" / "auth.json",
+            project_data_dir / "codex-home" / "auth.json",
+        ]
+        resolved_runtime_home = self.settings.CODEX_HOME_DIR.resolve()
+        result: list[Path] = []
+        for candidate in candidates:
+            try:
+                if candidate.parent.resolve() == resolved_runtime_home:
+                    continue
+            except OSError:
+                continue
+            result.append(candidate)
+        return result
 
     def _open_log_handles(self) -> tuple[object, object]:
         self.settings.SESSION_LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -207,7 +217,7 @@ class CodexSidecarManager:
             if status == "AUTH_REQUIRED":
                 await self.stop()
                 raise RuntimeError(
-                    f"Project-local Codex OAuth login is required. Run tools/codex-login and sign in to create {self.settings.CODEX_AUTH_FILE}."
+                    f"Repository-local Codex OAuth login is required. Run tools/codex-login and sign in to create {self.settings.CODEX_AUTH_FILE}."
                 )
             await asyncio.sleep(0.2)
 

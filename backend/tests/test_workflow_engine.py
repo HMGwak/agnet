@@ -10,6 +10,7 @@ from app.models import Repo, Run, Task, TaskStatus, Workspace, WorkspaceKind
 class FakeWorkspaceManager:
     def __init__(self, *, has_changes: bool = True):
         self.has_changes = has_changes
+        self.commits: list[tuple[Path, str]] = []
 
     async def create_worktree(
         self,
@@ -29,6 +30,10 @@ class FakeWorkspaceManager:
         return None
 
     async def has_working_tree_changes(self, workspace_path: Path) -> bool:
+        return self.has_changes
+
+    async def commit_workspace_changes(self, workspace_path: Path, message: str) -> bool:
+        self.commits.append((workspace_path, message))
         return self.has_changes
 
     async def get_diff(self, workspace_path: Path, base_branch: str = "main") -> str:
@@ -189,8 +194,9 @@ async def test_workflow_engine_moves_pending_task_to_merge_approval():
         is_active=True,
     )
     events = FakeEventSink()
+    workspace_manager = FakeWorkspaceManager()
     engine = SymphonyWorkflowEngine(
-        FakeWorkspaceManager(),
+        workspace_manager,
         FakeAgentRunner(),
         events,
         FakeSessionFactory(task, repo, workspace),
@@ -218,6 +224,7 @@ async def test_workflow_engine_moves_pending_task_to_merge_approval():
     assert [run.phase for run in run_objects] == ["plan", "critique", "implement", "test", "review"]
     assert all(run.finished_at is not None for run in run_objects)
     assert all(run.exit_code == 0 for run in run_objects)
+    assert workspace_manager.commits[-1][1] == "Task #1: Implement feature"
 
 
 @pytest.mark.asyncio

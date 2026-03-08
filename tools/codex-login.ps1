@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoDir = Split-Path -Parent $scriptDir
 $sidecarDir = Join-Path $repoDir "runtime\codex\sidecar"
-$codexHome = Join-Path $repoDir "project\app-codex-home"
+$codexHome = Join-Path $repoDir "runtime\codex\home"
 $configFile = Join-Path $codexHome "config.toml"
 $appData = Join-Path $codexHome "AppData\Roaming"
 $localAppData = Join-Path $codexHome "AppData\Local"
@@ -64,4 +64,4 @@ if (-not (Test-Path (Join-Path $codexHome "auth.json"))) {
     throw "Codex OAuth login did not create auth.json under $codexHome"
 }
 
-Write-Host "Project-local Codex OAuth login complete: $(Join-Path $codexHome 'auth.json')"
+Write-Host "Repository-local Codex OAuth login complete: $(Join-Path $codexHome 'auth.json')"

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiofiles
@@ -18,7 +18,7 @@ class TaskLogger:
         return self.tasks_dir / f"task-{task_id}.log"
 
     async def log(self, task_id: int, line: str):
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.now(UTC).isoformat()
         log_line = f"[{timestamp}] {line}\n"
         log_path = self.get_log_path(task_id)
         async with aiofiles.open(log_path, "a") as f:

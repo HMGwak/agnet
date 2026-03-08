@@ -168,7 +168,7 @@ def test_effective_codex_sandbox_mode_preserves_other_platforms(monkeypatch):
     )
 
 
-def test_settings_default_codex_home_is_app_local(tmp_path):
+def test_settings_default_codex_home_is_repository_local(tmp_path):
     settings = Settings(BASE_DIR=tmp_path)
 
-    assert settings.CODEX_HOME_DIR == tmp_path / "project" / "app-codex-home"
+    assert settings.CODEX_HOME_DIR == tmp_path / "runtime" / "codex" / "home"

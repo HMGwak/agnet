@@ -48,7 +48,7 @@ class Settings(BaseSettings):
         if self.CODEX_SIDECAR_DIR == Path(""):
             self.CODEX_SIDECAR_DIR = runtime_codex_dir / "sidecar"
         if self.CODEX_HOME_DIR == Path(""):
-            self.CODEX_HOME_DIR = self.PROJECT_DATA_DIR / "app-codex-home"
+            self.CODEX_HOME_DIR = runtime_codex_dir / "home"
         if self.CODEX_POLICY_FILE == Path(""):
             self.CODEX_POLICY_FILE = runtime_codex_dir / "policy.toml"
         if self.CODEX_PROMPTS_DIR == Path(""):

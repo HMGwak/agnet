@@ -6,9 +6,9 @@ BACKEND_DIR="$SCRIPT_DIR/backend"
 DASHBOARD_DIR="$SCRIPT_DIR/dashboard"
 RUNTIME_CODEX_DIR="$SCRIPT_DIR/runtime/codex"
 SIDECAR_DIR="$RUNTIME_CODEX_DIR/sidecar"
+CODEX_HOME_DIR="$RUNTIME_CODEX_DIR/home"
 PROJECT_DIR="$SCRIPT_DIR/project"
 LOGS_DIR="$PROJECT_DIR/logs"
-CODEX_HOME_DIR="$PROJECT_DIR/app-codex-home"
 CODEX_AUTH_FILE="$CODEX_HOME_DIR/auth.json"
 CODEX_CONFIG_FILE="$CODEX_HOME_DIR/config.toml"
 VENV_PYTHON=""
@@ -33,7 +33,7 @@ ensure_codex_auth() {
     return 0
   fi
 
-  echo "Project-local Codex OAuth login is required."
+  echo "Repository-local Codex OAuth login is required."
   echo "Launching login flow..."
   "$login_script"
 

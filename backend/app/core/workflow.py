@@ -29,6 +29,10 @@ class SymphonyWorkflowEngine:
     def set_worker_pool(self, pool):
         self.worker_pool = pool
 
+    def _build_task_commit_message(self, task: Task) -> str:
+        title = re.sub(r"\s+", " ", task.title or "").strip() or "Update workspace"
+        return f"Task #{task.id}: {title}"
+
     def _record_run(self, session, task_id: int, phase: str, exit_code: int) -> None:
         finished_at = datetime.now(UTC)
         session.add(
@@ -104,6 +108,16 @@ class SymphonyWorkflowEngine:
                     return
 
                 if task.status == TaskStatus.MERGING:
+                    workspace_path = Path(task.workspace_path) if task.workspace_path else None
+                    if workspace_path and await self.git.commit_workspace_changes(
+                        workspace_path,
+                        self._build_task_commit_message(task),
+                    ):
+                        task.diff_text = await self.git.get_diff(
+                            workspace_path,
+                            workspace.base_branch if workspace else repo.default_branch,
+                        )
+                        await session.commit()
                     await self.events.log(task.id, "Merging to main...")
                     success, msg = await self.git.merge_to_main(
                         Path(repo.path),
@@ -247,6 +261,17 @@ class SymphonyWorkflowEngine:
             raise NeedsAttentionError(
                 "Testing could not reach a passing state within the configured repair loop.\n\n"
                 f"{test_output.strip()}"
+            )
+
+        if not await self.git.commit_workspace_changes(
+            workspace_path,
+            self._build_task_commit_message(task),
+        ):
+            raise NeedsAttentionError(
+                "Implementation completed, but no mergeable workspace changes remained after filtering "
+                "ignored workspace artifacts.\n\n"
+                "If this keeps happening, verify that the runtime is not producing files only inside "
+                "placeholder directories such as unresolved Windows environment-variable paths."
             )
 
         task.diff_text = await self.git.get_diff(

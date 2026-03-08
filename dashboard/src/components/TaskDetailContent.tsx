@@ -27,6 +27,11 @@ type ParsedLogLine = {
   timestampMs: number | null;
 };
 
+function stripTimestampPrefix(raw: string): string {
+  const match = raw.match(/^\[[^\]]+\]\s*(.*)$/);
+  return match ? match[1] : raw;
+}
+
 function parseLogLines(text: string): ParsedLogLine[] {
   return text
     .split("\n")
@@ -96,6 +101,44 @@ function runIndicatorTone(run: Run): string {
   return "bg-red-500";
 }
 
+function getStepLogLinesByStageMarker(
+  runs: Run[],
+  runIndex: number,
+  logLines: ParsedLogLine[],
+): string[] {
+  const phase = runs[runIndex]?.phase;
+  if (!phase) {
+    return [];
+  }
+
+  const markerPrefix = `Stage: ${phase}`;
+  const occurrenceIndex = runs
+    .slice(0, runIndex + 1)
+    .filter((run) => run.phase === phase).length - 1;
+
+  const markerIndexes = logLines.reduce<number[]>((indexes, line, index) => {
+    if (stripTimestampPrefix(line.raw).startsWith(markerPrefix)) {
+      indexes.push(index);
+    }
+    return indexes;
+  }, []);
+
+  const startIndex = markerIndexes[occurrenceIndex];
+  if (startIndex === undefined) {
+    return [];
+  }
+
+  let endIndex = logLines.length;
+  for (let index = startIndex + 1; index < logLines.length; index += 1) {
+    if (stripTimestampPrefix(logLines[index].raw).startsWith("Stage: ")) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  return logLines.slice(startIndex, endIndex).map((line) => line.raw);
+}
+
 function getStepLogLines(runs: Run[], selectedRunId: number | null, logLines: ParsedLogLine[]): string[] {
   if (!selectedRunId) {
     return [];
@@ -114,13 +157,15 @@ function getStepLogLines(runs: Run[], selectedRunId: number | null, logLines: Pa
     : Number.NaN;
   const nextRunMs = nextRun ? parseBackendTimestamp(nextRun.started_at) : Number.NaN;
   const lowerBound = Number.isNaN(startMs) ? null : startMs;
-  const upperBound = !Number.isNaN(finishedMs)
-    ? finishedMs
-    : !Number.isNaN(nextRunMs)
+  const normalizedFinishedMs =
+    !Number.isNaN(finishedMs) && finishedMs > startMs ? finishedMs : Number.NaN;
+  const upperBound = !Number.isNaN(normalizedFinishedMs)
+    ? normalizedFinishedMs
+    : !Number.isNaN(nextRunMs) && nextRunMs > startMs
       ? nextRunMs
       : null;
 
-  return logLines
+  const timeWindowLines = logLines
     .filter((line) => {
       if (line.timestampMs === null || lowerBound === null) {
         return false;
@@ -134,6 +179,12 @@ function getStepLogLines(runs: Run[], selectedRunId: number | null, logLines: Pa
       return true;
     })
     .map((line) => line.raw);
+
+  if (timeWindowLines.length > 0) {
+    return timeWindowLines;
+  }
+
+  return getStepLogLinesByStageMarker(runs, runIndex, logLines);
 }
 
 export function TaskDetailContent({
@@ -626,8 +677,8 @@ export function TaskDetailContent({
         </div>
       )}
 
-      {task.status === "AWAIT_MERGE_APPROVAL" && task.diff_text && (
-        <MergeApproval taskId={task.id} diffText={task.diff_text} onApproved={() => mutate()} />
+      {task.status === "AWAIT_MERGE_APPROVAL" && (
+        <MergeApproval taskId={task.id} diffText={task.diff_text ?? ""} onApproved={() => mutate()} />
       )}
 
       {task.plan_text && (

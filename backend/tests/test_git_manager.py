@@ -96,6 +96,50 @@ async def test_get_diff(temp_repo, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_has_working_tree_changes_ignores_windows_placeholder_artifacts(temp_repo, tmp_path):
+    gm = GitManager(tmp_path / "workspaces")
+    ws = await gm.create_worktree(
+        temp_repo,
+        "workspace/9/ignore-artifact",
+        9,
+        repo_id=11,
+        repo_name="Demo Repo",
+        workspace_name="Ignore Artifact",
+        base_branch="main",
+    )
+    artifact = ws / "%SystemDrive%" / "ProgramData" / "artifact.txt"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("noise", encoding="utf-8")
+
+    assert await gm.has_working_tree_changes(ws) is False
+
+
+@pytest.mark.asyncio
+async def test_commit_workspace_changes_ignores_windows_placeholder_artifacts(temp_repo, tmp_path):
+    gm = GitManager(tmp_path / "workspaces")
+    ws = await gm.create_worktree(
+        temp_repo,
+        "workspace/10/commit-test",
+        10,
+        repo_id=11,
+        repo_name="Demo Repo",
+        workspace_name="Commit Test",
+        base_branch="main",
+    )
+    (ws / "README.md").write_text("# Updated", encoding="utf-8")
+    artifact = ws / "%SystemDrive%" / "ProgramData" / "artifact.txt"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("noise", encoding="utf-8")
+
+    committed = await gm.commit_workspace_changes(ws, "Task #10: Update README")
+
+    assert committed is True
+    diff = await gm.get_diff(ws)
+    assert "README.md" in diff
+    assert "%SystemDrive%" not in diff
+
+
+@pytest.mark.asyncio
 async def test_merge_to_main_uses_base_branch(temp_repo, tmp_path):
     gm = GitManager(tmp_path / "workspaces")
     ws = await gm.create_worktree(

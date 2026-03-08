@@ -5,9 +5,9 @@ $backendDir = Join-Path $scriptDir "backend"
 $dashboardDir = Join-Path $scriptDir "dashboard"
 $runtimeCodexDir = Join-Path $scriptDir "runtime\codex"
 $sidecarDir = Join-Path $runtimeCodexDir "sidecar"
+$codexHome = Join-Path $runtimeCodexDir "home"
 $projectDir = Join-Path $scriptDir "project"
 $logsDir = Join-Path $projectDir "logs"
-$codexHome = Join-Path $projectDir "app-codex-home"
 $codexAuthFile = Join-Path $codexHome "auth.json"
 $codexConfigFile = Join-Path $codexHome "config.toml"
 $backendPort = 8001
@@ -48,7 +48,7 @@ function Ensure-CodexAuth {
         return
     }
 
-    Write-Host "Project-local Codex OAuth login is required."
+    Write-Host "Repository-local Codex OAuth login is required."
     Write-Host "Launching login flow..."
     & $LoginScript
 
