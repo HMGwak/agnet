@@ -106,6 +106,18 @@ class TaskResumeRequest(BaseModel):
     comment: str = ""
 
 
+class RunResponse(BaseModel):
+    id: int
+    task_id: int
+    phase: str
+    started_at: datetime
+    finished_at: datetime | None
+    exit_code: int | None
+    log_path: str | None
+
+    model_config = {"from_attributes": True}
+
+
 class TaskResponse(BaseModel):
     id: int
     repo_id: int
@@ -125,6 +137,7 @@ class TaskResponse(BaseModel):
     diff_text: str | None
     error_message: str | None
     retry_count: int
+    runs: list[RunResponse] = []
     created_at: datetime
     updated_at: datetime
 
@@ -162,18 +175,5 @@ class ApprovalResponse(BaseModel):
     decision: str
     comment: str | None
     decided_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-# --- Run ---
-class RunResponse(BaseModel):
-    id: int
-    task_id: int
-    phase: str
-    started_at: datetime
-    finished_at: datetime | None
-    exit_code: int | None
-    log_path: str | None
 
     model_config = {"from_attributes": True}
