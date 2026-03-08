@@ -51,6 +51,7 @@ class FakeWorkspaceManager:
     async def cleanup_worktree(self, repo_path, workspace_path):
         self.cleaned_paths.append((repo_path, workspace_path))
 
+
 @pytest.mark.asyncio
 async def test_create_repo_initializes_main_workspace(tmp_path):
     service = RepoService(FakeStore(), workspace_manager=FakeWorkspaceManager())
@@ -64,6 +65,22 @@ async def test_create_repo_initializes_main_workspace(tmp_path):
 
     assert repo.name == "demo"
     assert service.store.main_workspace_created_for is repo
+
+
+@pytest.mark.asyncio
+async def test_create_repo_uses_child_folder_when_parent_path_is_selected(tmp_path):
+    service = RepoService(FakeStore(), workspace_manager=FakeWorkspaceManager())
+
+    repo = await service.create_repo(
+        db=None,
+        name="demo",
+        path=str(tmp_path),
+        default_branch="main",
+        create_if_missing=True,
+    )
+
+    assert repo.path == str(tmp_path / "demo")
+    assert (tmp_path / "demo").is_dir()
 
 
 @pytest.mark.asyncio

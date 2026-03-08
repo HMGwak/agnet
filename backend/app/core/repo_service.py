@@ -20,7 +20,8 @@ class RepoService:
         create_if_missing: bool = False,
         profile: RepoProfileDraft | None = None,
     ):
-        repo_path = Path(path)
+        repo_name = name.strip()
+        repo_path = self._resolve_repo_path(repo_name, Path(path), create_if_missing)
         if not repo_path.is_dir():
             if create_if_missing:
                 repo_path.mkdir(parents=True, exist_ok=True)
@@ -37,6 +38,18 @@ class RepoService:
             await self.store.delete_repo(db, repo)
             raise
         return repo
+
+    @staticmethod
+    def _resolve_repo_path(name: str, requested_path: Path, create_if_missing: bool) -> Path:
+        if not create_if_missing:
+            return requested_path
+        if not requested_path.exists():
+            return requested_path
+        if not requested_path.is_dir():
+            return requested_path
+        if requested_path.name.strip().casefold() == name.strip().casefold():
+            return requested_path
+        return requested_path / name
 
     async def list_repos(self, db):
         return await self.store.list_repos(db)
