@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +54,7 @@ async def get_task(task_id: int, request: Request, db: AsyncSession = Depends(ge
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await request.app.state.services.store.attach_task_metadata(db, [task])
+    await request.app.state.services.store.attach_task_runs(db, task)
     return task
 
 
@@ -138,8 +141,26 @@ async def delete_task(
 
 
 @router.get("/{task_id}/logs")
-async def get_task_logs(task_id: int, request: Request):
+async def get_task_logs(task_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     content = await request.app.state.task_logger.read_logs(task_id)
-    if not content:
+    if content:
+        return PlainTextResponse(content)
+
+    task = await request.app.state.services.store.get_task(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await request.app.state.services.store.attach_task_runs(db, task)
+
+    log_chunks: list[str] = []
+    seen_paths: set[str] = set()
+    for run in task.runs:
+        if not run.log_path or run.log_path in seen_paths:
+            continue
+        seen_paths.add(run.log_path)
+        path = Path(run.log_path)
+        if path.exists():
+            log_chunks.append(path.read_text(encoding="utf-8"))
+
+    if not log_chunks:
         raise HTTPException(status_code=404, detail="Log file not found")
-    return PlainTextResponse(content)
+    return PlainTextResponse("".join(log_chunks))

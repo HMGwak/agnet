@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 import re
 
@@ -27,6 +28,19 @@ class SymphonyWorkflowEngine:
 
     def set_worker_pool(self, pool):
         self.worker_pool = pool
+
+    def _record_run(self, session, task_id: int, phase: str, exit_code: int) -> None:
+        finished_at = datetime.now(UTC)
+        session.add(
+            Run(
+                task_id=task_id,
+                phase=phase,
+                started_at=finished_at,
+                finished_at=finished_at,
+                exit_code=exit_code,
+                log_path=str(self.events.get_log_path(task_id)),
+            )
+        )
 
     async def _update_status(self, session, task, new_status: TaskStatus):
         old = task.status
@@ -96,13 +110,7 @@ class SymphonyWorkflowEngine:
                         workspace.branch_name if workspace else task.branch_name,
                         workspace.base_branch if workspace else repo.default_branch,
                     )
-                    run = Run(
-                        task_id=task.id,
-                        phase="merge",
-                        exit_code=0 if success else 1,
-                        log_path=str(self.events.get_log_path(task.id)),
-                    )
-                    session.add(run)
+                    self._record_run(session, task.id, "merge", 0 if success else 1)
                     if not success:
                         raise RuntimeError(f"Merge failed: {msg}")
                     await self._update_status(session, task, TaskStatus.DONE)
@@ -138,14 +146,7 @@ class SymphonyWorkflowEngine:
             branch_name=workspace.branch_name if workspace else task.branch_name or "",
             base_branch=workspace.base_branch if workspace else repo.default_branch,
         )
-        session.add(
-            Run(
-                task_id=task.id,
-                phase="plan",
-                exit_code=exit_code,
-                log_path=str(self.events.get_log_path(task.id)),
-            )
-        )
+        self._record_run(session, task.id, "plan", exit_code)
         if exit_code != 0:
             raise RuntimeError(f"Plan generation failed: {output[-500:]}")
 
@@ -175,14 +176,7 @@ class SymphonyWorkflowEngine:
                 branch_name=workspace.branch_name if workspace else task.branch_name or "",
                 base_branch=workspace.base_branch if workspace else repo.default_branch,
             )
-            session.add(
-                Run(
-                    task_id=task.id,
-                    phase="critique",
-                    exit_code=exit_code,
-                    log_path=str(self.events.get_log_path(task.id)),
-                )
-            )
+            self._record_run(session, task.id, "critique", exit_code)
             if exit_code != 0:
                 raise RuntimeError(f"Plan critique failed: {critique_output[-500:]}")
 
@@ -213,14 +207,7 @@ class SymphonyWorkflowEngine:
             branch_name=workspace.branch_name if workspace else task.branch_name or "",
             base_branch=workspace.base_branch if workspace else repo.default_branch,
         )
-        session.add(
-            Run(
-                task_id=task.id,
-                phase="implement",
-                exit_code=exit_code,
-                log_path=str(self.events.get_log_path(task.id)),
-            )
-        )
+        self._record_run(session, task.id, "implement", exit_code)
         if exit_code != 0:
             raise RuntimeError(f"Implementation failed: {output[-500:]}")
 
@@ -248,14 +235,7 @@ class SymphonyWorkflowEngine:
             branch_name=workspace.branch_name if workspace else task.branch_name or "",
             base_branch=workspace.base_branch if workspace else repo.default_branch,
         )
-        session.add(
-            Run(
-                task_id=task.id,
-                phase="test",
-                exit_code=exit_code,
-                log_path=str(self.events.get_log_path(task.id)),
-            )
-        )
+        self._record_run(session, task.id, "test", exit_code)
         if exit_code != 0:
             raise RuntimeError(f"Testing failed: {test_output[-500:]}")
 
@@ -289,14 +269,7 @@ class SymphonyWorkflowEngine:
                 branch_name=workspace.branch_name if workspace else task.branch_name or "",
                 base_branch=workspace.base_branch if workspace else repo.default_branch,
             )
-            session.add(
-                Run(
-                    task_id=task.id,
-                    phase="review",
-                    exit_code=exit_code,
-                    log_path=str(self.events.get_log_path(task.id)),
-                )
-            )
+            self._record_run(session, task.id, "review", exit_code)
             if exit_code != 0:
                 raise RuntimeError(f"Review failed: {review_output[-500:]}")
 

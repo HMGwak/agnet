@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import func, select
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.policies import should_mark_needs_attention, slugify
 from app.models import Approval, Repo, Run, Task, TaskStatus, Workspace, WorkspaceKind
@@ -202,6 +203,14 @@ class SQLiteStore:
             if workspace:
                 task.workspace_path = workspace.workspace_path or task.workspace_path
                 task.branch_name = workspace.branch_name
+
+    async def attach_task_runs(self, db, task: Task) -> None:
+        result = await db.execute(
+            select(Run)
+            .where(Run.task_id == task.id)
+            .order_by(Run.started_at.asc(), Run.id.asc())
+        )
+        set_committed_value(task, "runs", list(result.scalars().all()))
 
     async def attach_workspace_metadata(self, db, workspaces: list[Workspace]) -> None:
         workspace_ids = [workspace.id for workspace in workspaces]

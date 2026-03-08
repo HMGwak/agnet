@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useSWRConfig } from "swr";
-import { ArrowLeft, Loader2, Trash2, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Loader2, Timer, Trash2, XCircle } from "lucide-react";
 import { useTask } from "@/hooks/useTasks";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { cancelTask, deleteTask, resumeTask } from "@/lib/api";
+import { cancelTask, deleteTask, getTaskLogs, resumeTask } from "@/lib/api";
+import type { Run } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MergeApproval } from "@/components/MergeApproval";
 import { DiffViewer } from "@/components/DiffViewer";
@@ -20,6 +21,120 @@ type Props = {
   className?: string;
   onDeleted?: () => void;
 };
+
+type ParsedLogLine = {
+  raw: string;
+  timestampMs: number | null;
+};
+
+function parseLogLines(text: string): ParsedLogLine[] {
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .map((raw) => {
+      const match = raw.match(/^\[([^\]]+)\]/);
+      if (!match) {
+        return { raw, timestampMs: null };
+      }
+      const parsed = parseBackendTimestamp(match[1]);
+      return { raw, timestampMs: Number.isNaN(parsed) ? null : parsed };
+    });
+}
+
+function formatPhaseLabel(phase: string): string {
+  return phase
+    .split("_")
+    .join(" ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function describeRunState(run: Run): { label: string; tone: string; icon: "success" | "error" | "running" } {
+  if (run.exit_code === null) {
+    return {
+      label: "In progress",
+      tone: "bg-sky-50 text-sky-700 border-sky-200",
+      icon: "running",
+    };
+  }
+  if (run.exit_code === 0) {
+    return {
+      label: "Passed",
+      tone: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      icon: "success",
+    };
+  }
+  return {
+    label: "Failed",
+    tone: "bg-red-50 text-red-700 border-red-200",
+    icon: "error",
+  };
+}
+
+function runListItemTone(run: Run, isSelected: boolean): string {
+  if (run.exit_code === null) {
+    return isSelected
+      ? "border-sky-300 bg-sky-50 shadow-sm"
+      : "border-sky-200 bg-sky-50/60 hover:bg-sky-50";
+  }
+  if (run.exit_code === 0) {
+    return isSelected
+      ? "border-emerald-300 bg-emerald-50 shadow-sm"
+      : "border-emerald-200 bg-emerald-50/60 hover:bg-emerald-50";
+  }
+  return isSelected
+    ? "border-red-300 bg-red-50 shadow-sm"
+    : "border-red-200 bg-red-50/60 hover:bg-red-50";
+}
+
+function runIndicatorTone(run: Run): string {
+  if (run.exit_code === null) {
+    return "bg-sky-500";
+  }
+  if (run.exit_code === 0) {
+    return "bg-emerald-500";
+  }
+  return "bg-red-500";
+}
+
+function getStepLogLines(runs: Run[], selectedRunId: number | null, logLines: ParsedLogLine[]): string[] {
+  if (!selectedRunId) {
+    return [];
+  }
+
+  const runIndex = runs.findIndex((run) => run.id === selectedRunId);
+  if (runIndex === -1) {
+    return [];
+  }
+
+  const currentRun = runs[runIndex];
+  const nextRun = runs[runIndex + 1];
+  const startMs = parseBackendTimestamp(currentRun.started_at);
+  const finishedMs = currentRun.finished_at
+    ? parseBackendTimestamp(currentRun.finished_at)
+    : Number.NaN;
+  const nextRunMs = nextRun ? parseBackendTimestamp(nextRun.started_at) : Number.NaN;
+  const lowerBound = Number.isNaN(startMs) ? null : startMs;
+  const upperBound = !Number.isNaN(finishedMs)
+    ? finishedMs
+    : !Number.isNaN(nextRunMs)
+      ? nextRunMs
+      : null;
+
+  return logLines
+    .filter((line) => {
+      if (line.timestampMs === null || lowerBound === null) {
+        return false;
+      }
+      if (line.timestampMs < lowerBound) {
+        return false;
+      }
+      if (upperBound !== null && line.timestampMs >= upperBound) {
+        return false;
+      }
+      return true;
+    })
+    .map((line) => line.raw);
+}
 
 export function TaskDetailContent({
   taskId,
@@ -37,12 +152,31 @@ export function TaskDetailContent({
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [logLines, setLogLines] = useState<ParsedLogLine[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
 
   const { connected } = useWebSocket(taskId, (msg) => {
     if (msg.type === "task_state_changed") {
       mutate();
+      return;
+    }
+    if (msg.type === "task_log_line") {
+      const timestamp = typeof msg.data?.timestamp === "string" ? msg.data.timestamp : "";
+      const line = typeof msg.data?.line === "string" ? msg.data.line : "";
+      const parsed = parseBackendTimestamp(timestamp);
+      if (!Number.isNaN(parsed)) {
+        setLastActivityAt(parsed);
+      }
+      const raw = timestamp ? `[${timestamp}] ${line}` : line;
+      setLogLines((prev) => [...prev, { raw, timestampMs: Number.isNaN(parsed) ? null : parsed }]);
     }
   });
+
+  useEffect(() => {
+    getTaskLogs(taskId)
+      .then((text) => setLogLines(parseLogLines(text)))
+      .catch(() => setLogLines([]));
+  }, [taskId]);
 
   useEffect(() => {
     if (!task) {
@@ -53,6 +187,20 @@ export function TaskDetailContent({
       setLastActivityAt(parsed);
     }
   }, [task?.updated_at, task]);
+
+  useEffect(() => {
+    const runs = task?.runs ?? [];
+    if (runs.length === 0) {
+      setSelectedRunId(null);
+      return;
+    }
+    setSelectedRunId((current) => {
+      if (current && runs.some((run) => run.id === current)) {
+        return current;
+      }
+      return runs[runs.length - 1].id;
+    });
+  }, [task?.runs]);
 
   const isRunning = !!task && [
     "PREPARING_WORKSPACE",
@@ -109,6 +257,16 @@ export function TaskDetailContent({
 
     return { headline, detail, activityMs };
   }, [connected, isRunning, lastActivityAt, now, task]);
+
+  const runs = useMemo(() => task?.runs ?? [], [task?.runs]);
+  const selectedRun = useMemo(
+    () => runs.find((run) => run.id === selectedRunId) ?? null,
+    [runs, selectedRunId]
+  );
+  const stepLogLines = useMemo(
+    () => getStepLogLines(runs, selectedRunId, logLines),
+    [logLines, runs, selectedRunId]
+  );
 
   if (isLoading) {
     return (
@@ -272,6 +430,126 @@ export function TaskDetailContent({
           )}
         </div>
       </div>
+
+      {runs.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700">Step History</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Review each recorded phase without leaving the board.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
+              {runs.length} step{runs.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+            <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
+              {runs.map((run, index) => {
+                const isSelected = run.id === selectedRunId;
+                return (
+                  <button
+                    key={run.id}
+                    type="button"
+                    onClick={() => setSelectedRunId(run.id)}
+                    className={`w-full rounded-2xl border px-3 py-3 text-left transition ${runListItemTone(run, isSelected)}`}
+                  >
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${runIndicatorTone(run)}`} />
+                      <span className="font-semibold text-slate-900">Step {index + 1}</span>
+                      <span className="text-slate-300">·</span>
+                      <span className="font-medium uppercase tracking-wide text-slate-500">
+                        {run.phase}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              {selectedRun ? (
+                <>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-semibold text-slate-900">
+                          {formatPhaseLabel(selectedRun.phase)}
+                        </h3>
+                        {describeRunState(selectedRun).icon === "success" && (
+                          <CheckCircle2 className="text-emerald-600" size={16} />
+                        )}
+                        {describeRunState(selectedRun).icon === "error" && (
+                          <XCircle className="text-red-600" size={16} />
+                        )}
+                        {describeRunState(selectedRun).icon === "running" && (
+                          <Loader2 className="animate-spin text-sky-600" size={16} />
+                        )}
+                      </div>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {selectedRun.finished_at
+                          ? `${formatKSTDateTime(selectedRun.started_at)} - ${formatKSTDateTime(selectedRun.finished_at)}`
+                          : `Started ${formatKSTDateTime(selectedRun.started_at)}`}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                      Exit code: {selectedRun.exit_code ?? "running"}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                        <Timer size={14} />
+                        Recorded window
+                      </div>
+                      <div className="mt-2 space-y-1 text-xs text-slate-500">
+                        <p>Started: {formatKSTDateTime(selectedRun.started_at)}</p>
+                        <p>
+                          Finished:{" "}
+                          {selectedRun.finished_at ? formatKSTDateTime(selectedRun.finished_at) : "Still running"}
+                        </p>
+                        {selectedRun.log_path && <p className="font-mono break-all">{selectedRun.log_path}</p>}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                      <div className="text-sm font-medium text-slate-700">Artifacts</div>
+                      <div className="mt-2 space-y-1 text-xs text-slate-500">
+                        <p>Plan captured: {task.plan_text ? "Yes" : "No"}</p>
+                        <p>Diff captured: {task.diff_text ? "Yes" : "No"}</p>
+                        <p>Phase key: {selectedRun.phase}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <h4 className="text-sm font-semibold text-slate-700">Step Logs</h4>
+                    <div className="mt-2 rounded-2xl bg-slate-950 p-3">
+                      {stepLogLines.length === 0 ? (
+                        <p className="text-xs text-slate-400">No log lines were captured for this step yet.</p>
+                      ) : (
+                        <div className="max-h-[320px] space-y-0.5 overflow-y-auto font-mono text-xs text-slate-200">
+                          {stepLogLines.map((line, index) => (
+                            <div key={`${selectedRun.id}-${index}`} className="whitespace-pre-wrap break-all">
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex min-h-[260px] items-center justify-center text-sm text-slate-400">
+                  Select a step to inspect its detail.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {task.workspace_name && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">

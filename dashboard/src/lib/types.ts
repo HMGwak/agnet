@@ -69,6 +69,7 @@ export interface Task {
   diff_text: string | null;
   error_message: string | null;
   retry_count: number;
+  runs: Run[];
   created_at: string;
   updated_at: string;
 }
@@ -146,4 +147,14 @@ export interface Approval {
   decision: string;
   comment: string | null;
   decided_at: string;
+}
+
+export interface Run {
+  id: number;
+  task_id: number;
+  phase: string;
+  started_at: string;
+  finished_at: string | null;
+  exit_code: number | null;
+  log_path: string | null;
 }

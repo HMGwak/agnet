@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.workflow import SymphonyWorkflowEngine
-from app.models import Repo, Task, TaskStatus, Workspace, WorkspaceKind
+from app.models import Repo, Run, Task, TaskStatus, Workspace, WorkspaceKind
 
 
 class FakeWorkspaceManager:
@@ -160,9 +160,11 @@ class FakeSessionFactory:
         self.task = task
         self.repo = repo
         self.workspace = workspace
+        self.last_session = None
 
     def __call__(self):
-        return FakeSession(self.task, self.repo, self.workspace)
+        self.last_session = FakeSession(self.task, self.repo, self.workspace)
+        return self.last_session
 
 
 @pytest.mark.asyncio
@@ -212,6 +214,10 @@ async def test_workflow_engine_moves_pending_task_to_merge_approval():
         (1, "IMPLEMENTING", "TESTING"),
         (1, "TESTING", "AWAIT_MERGE_APPROVAL"),
     ]
+    run_objects = [obj for obj in engine.session_factory.last_session.objects if isinstance(obj, Run)]
+    assert [run.phase for run in run_objects] == ["plan", "critique", "implement", "test", "review"]
+    assert all(run.finished_at is not None for run in run_objects)
+    assert all(run.exit_code == 0 for run in run_objects)
 
 
 @pytest.mark.asyncio
