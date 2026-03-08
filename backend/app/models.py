@@ -115,3 +115,16 @@ class Approval(Base):
     decided_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     task: Mapped["Task"] = relationship(back_populates="approvals")
+
+
+class ArchivedTask(Base):
+    __tablename__ = "archived_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    original_task_id: Mapped[int] = mapped_column(Integer)
+    repo_id: Mapped[int] = mapped_column(Integer)
+    workspace_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(50))
+    snapshot_json: Mapped[str] = mapped_column(Text)
+    archived_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -30,6 +30,28 @@ class FakeStore:
         self.created_task = None
         self.deleted_workspace = None
         self.created_workspace_names = []
+        self.archived_tasks = []
+        self.runs = [
+            SimpleNamespace(
+                id=1,
+                task_id=7,
+                phase="review",
+                started_at=None,
+                finished_at=None,
+                exit_code=0,
+                log_path=None,
+            )
+        ]
+        self.approvals = [
+            SimpleNamespace(
+                id=1,
+                task_id=7,
+                phase="merge",
+                decision="approved",
+                comment="ok",
+                decided_at=None,
+            )
+        ]
 
     async def get_repo(self, db, repo_id: int):
         return self.repo if repo_id == self.repo.id else None
@@ -77,6 +99,16 @@ class FakeStore:
     async def delete_workspace(self, db, workspace):
         self.deleted_workspace = workspace
 
+    async def list_task_runs(self, db, task_id: int):
+        return self.runs
+
+    async def list_task_approvals(self, db, task_id: int):
+        return self.approvals
+
+    async def create_archived_task(self, db, **kwargs):
+        self.archived_tasks.append(kwargs)
+        return SimpleNamespace(id=1, **kwargs)
+
 
 class FakeWorkflow:
     def __init__(self):
@@ -93,6 +125,9 @@ class FakeWorkflow:
 
 
 class FakeEvents:
+    def get_log_path(self, task_id: int):
+        return Path(f"D:/logs/task-{task_id}.log")
+
     async def log(self, task_id: int, line: str):
         return None
 
@@ -114,6 +149,7 @@ class FakeWorkerPool:
 class FakeDB:
     def __init__(self):
         self.deleted = []
+        self.flushed = False
 
     async def delete(self, obj):
         self.deleted.append(obj)
@@ -123,6 +159,9 @@ class FakeDB:
 
     async def refresh(self, obj):
         return None
+
+    async def flush(self):
+        self.flushed = True
 
 
 def make_policy():
@@ -233,8 +272,53 @@ async def test_delete_task_can_delete_empty_feature_workspace():
     await service.delete_task(
         db,
         task_id=7,
-        delete_workspace_if_empty=True,
     )
 
     assert db.deleted == [task]
     assert store.deleted_workspace is store.feature_workspace
+
+
+@pytest.mark.asyncio
+async def test_archive_task_stores_snapshot_and_deletes_empty_feature_workspace(tmp_path):
+    store = FakeStore()
+    workflow = FakeWorkflow()
+    events = FakeEvents()
+    log_path = tmp_path / "task-7.log"
+    log_path.write_text("line 1\nline 2\n", encoding="utf-8")
+    events.get_log_path = lambda task_id: log_path
+    service = TaskCommandService(store, workflow, events, FakeWorkerPool(), make_policy())
+    db = FakeDB()
+    task = SimpleNamespace(
+        id=7,
+        repo_id=1,
+        workspace_id=11,
+        title="Done task",
+        description="desc",
+        scheduled_for=None,
+        blocked_by_task_id=None,
+        status=TaskStatus.DONE,
+        branch_name="workspace/11/feature",
+        workspace_path="D:/workspaces/repo-1/workspace-11-feature",
+        plan_text="plan",
+        diff_text="diff",
+        error_message=None,
+        retry_count=0,
+        created_at=None,
+        updated_at=None,
+    )
+
+    async def get_task(db, task_id: int):
+        return task
+
+    async def count_workspace_tasks(db, workspace_id: int) -> int:
+        return 0
+
+    store.get_task = get_task
+    store.count_workspace_tasks = count_workspace_tasks
+
+    await service.archive_task(db, task_id=7)
+
+    assert db.deleted == [task]
+    assert store.deleted_workspace is store.feature_workspace
+    assert store.archived_tasks[0]["original_task_id"] == 7
+    assert "line 1" in store.archived_tasks[0]["snapshot_json"]

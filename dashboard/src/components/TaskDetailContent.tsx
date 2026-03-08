@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useSWRConfig } from "swr";
-import { ArrowLeft, CheckCircle2, Loader2, Timer, Trash2, XCircle } from "lucide-react";
+import { Archive, ArrowLeft, CheckCircle2, Loader2, Timer, Trash2, XCircle } from "lucide-react";
 import { useTask } from "@/hooks/useTasks";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { cancelTask, deleteTask, getTaskLogs, resumeTask } from "@/lib/api";
+import { archiveTask, cancelTask, deleteTask, getTaskLogs, resumeTask } from "@/lib/api";
 import type { Run } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MergeApproval } from "@/components/MergeApproval";
@@ -197,8 +197,10 @@ export function TaskDetailContent({
   const { mutate: mutateCache } = useSWRConfig();
   const { data: task, error, isLoading, mutate } = useTask(taskId);
   const [cancelling, setCancelling] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [showArchivePrompt, setShowArchivePrompt] = useState(false);
   const [followUpComment, setFollowUpComment] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
@@ -252,6 +254,10 @@ export function TaskDetailContent({
       return runs[runs.length - 1].id;
     });
   }, [task?.runs]);
+
+  useEffect(() => {
+    setShowArchivePrompt(task?.status === "DONE");
+  }, [task?.id, task?.status]);
 
   const isRunning = !!task && [
     "PREPARING_WORKSPACE",
@@ -332,6 +338,7 @@ export function TaskDetailContent({
   }
 
   const canCancel = !["DONE", "CANCELLED"].includes(task.status);
+  const canArchive = task.status === "DONE";
   const canResume = ["NEEDS_ATTENTION", "FAILED", "CANCELLED"].includes(task.status);
   const canDelete = task.status === "CANCELLED";
 
@@ -374,15 +381,7 @@ export function TaskDetailContent({
     setDeleting(true);
     setActionError(null);
     try {
-      let deleteWorkspaceToo = false;
-      if (currentTask.workspace_kind === "FEATURE" && currentTask.workspace_task_count === 1) {
-        deleteWorkspaceToo = window.confirm(
-          `This is the last task in workspace "${currentTask.workspace_name}".\n\nDelete the workspace too?`
-        );
-      }
-      await deleteTask(taskId, {
-        delete_workspace_if_empty: deleteWorkspaceToo,
-      });
+      await deleteTask(taskId);
       await mutateCache((key: unknown) => Array.isArray(key) && key[0] === "tasks");
       await mutateCache((key: unknown) => Array.isArray(key) && key[0] === "workspaces");
       await mutateCache(["task", taskId], undefined, { revalidate: false });
@@ -394,6 +393,26 @@ export function TaskDetailContent({
       setActionError(err instanceof Error ? err.message : "Failed to delete task.");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleArchive() {
+    setArchiving(true);
+    setActionError(null);
+    try {
+      await archiveTask(taskId);
+      setShowArchivePrompt(false);
+      await mutateCache((key: unknown) => Array.isArray(key) && key[0] === "tasks");
+      await mutateCache((key: unknown) => Array.isArray(key) && key[0] === "workspaces");
+      await mutateCache(["task", taskId], undefined, { revalidate: false });
+      onDeleted?.();
+      if (!onDeleted) {
+        router.push("/tasks");
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to archive task.");
+    } finally {
+      setArchiving(false);
     }
   }
 
@@ -428,6 +447,20 @@ export function TaskDetailContent({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {canArchive && (
+              <button
+                onClick={() => setShowArchivePrompt(true)}
+                disabled={archiving}
+                className="flex items-center gap-1 text-sm text-emerald-700 hover:text-emerald-800 border border-emerald-200 rounded-md px-3 py-1.5"
+              >
+                {archiving ? (
+                  <Loader2 className="animate-spin" size={14} />
+                ) : (
+                  <Archive size={14} />
+                )}
+                Archive
+              </button>
+            )}
             {canDelete && (
               <button
                 onClick={handleDelete}
@@ -694,6 +727,43 @@ export function TaskDetailContent({
         <div>
           <h2 className="text-sm font-semibold text-gray-700 mb-2">Changes</h2>
           <DiffViewer diff={task.diff_text} />
+        </div>
+      )}
+
+      {showArchivePrompt && canArchive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <h2 className="text-lg font-semibold text-slate-900">Archive Completed Task?</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Archiving saves the task, runs, approvals, and captured logs into the database, then
+              removes the live task. If this was the last task in its feature workspace, the
+              workspace worktree is deleted too.
+            </p>
+            {actionError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                {actionError}
+              </div>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowArchivePrompt(false)}
+                disabled={archiving}
+                className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Keep Live
+              </button>
+              <button
+                type="button"
+                onClick={handleArchive}
+                disabled={archiving}
+                className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {archiving && <Loader2 className="animate-spin" size={14} />}
+                Archive Task
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

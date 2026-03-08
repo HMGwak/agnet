@@ -140,6 +140,16 @@ async def delete_task(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/{task_id}/archive", status_code=204)
+async def archive_task(task_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        await request.app.state.services.task_commands.archive_task(db, task_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/{task_id}/logs")
 async def get_task_logs(task_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     content = await request.app.state.task_logger.read_logs(task_id)

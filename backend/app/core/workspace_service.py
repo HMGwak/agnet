@@ -15,6 +15,27 @@ class WorkspaceService:
         repo = await self.store.get_repo(db, repo_id)
         if repo is None:
             raise LookupError("Repo not found")
+        workspaces = await self.store.list_workspaces(db, repo_id)
+        repo_path = Path(repo.path)
+        empty_feature_workspaces = [
+            workspace
+            for workspace in workspaces
+            if workspace.kind == WorkspaceKind.FEATURE and getattr(workspace, "task_count", 0) == 0
+        ]
+        if not empty_feature_workspaces:
+            return workspaces
+
+        for workspace in empty_feature_workspaces:
+            if workspace.workspace_path:
+                try:
+                    await self.workspace_manager.cleanup_worktree(
+                        repo_path,
+                        Path(workspace.workspace_path),
+                    )
+                except Exception:
+                    pass
+            await self.store.delete_workspace(db, workspace)
+
         return await self.store.list_workspaces(db, repo_id)
 
     async def create_workspace(self, db, repo_id: int, name: str):

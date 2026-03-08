@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.policies import should_mark_needs_attention, slugify
-from app.models import Approval, Repo, Run, Task, TaskStatus, Workspace, WorkspaceKind
+from app.models import ArchivedTask, Approval, Repo, Run, Task, TaskStatus, Workspace, WorkspaceKind
 
 
 class SQLiteStore:
@@ -166,6 +166,29 @@ class SQLiteStore:
         await db.commit()
         return approval
 
+    async def create_archived_task(
+        self,
+        db,
+        *,
+        original_task_id: int,
+        repo_id: int,
+        workspace_id: int | None,
+        title: str,
+        status: str,
+        snapshot_json: str,
+    ):
+        archived_task = ArchivedTask(
+            original_task_id=original_task_id,
+            repo_id=repo_id,
+            workspace_id=workspace_id,
+            title=title,
+            status=status,
+            snapshot_json=snapshot_json,
+        )
+        db.add(archived_task)
+        await db.flush()
+        return archived_task
+
     async def attach_task_metadata(self, db, tasks: list[Task]) -> None:
         dependency_ids = {task.blocked_by_task_id for task in tasks if task.blocked_by_task_id}
         dependency_titles: dict[int, str] = {}
@@ -229,6 +252,22 @@ class SQLiteStore:
         }
         for workspace in workspaces:
             workspace.task_count = counts.get(workspace.id, 0)
+
+    async def list_task_runs(self, db, task_id: int) -> list[Run]:
+        result = await db.execute(
+            select(Run)
+            .where(Run.task_id == task_id)
+            .order_by(Run.started_at.asc(), Run.id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_task_approvals(self, db, task_id: int) -> list[Approval]:
+        result = await db.execute(
+            select(Approval)
+            .where(Approval.task_id == task_id)
+            .order_by(Approval.decided_at.asc(), Approval.id.asc())
+        )
+        return list(result.scalars().all())
 
     async def delete_task_records(self, db, task_id: int) -> None:
         runs = (await db.execute(select(Run).where(Run.task_id == task_id))).scalars().all()

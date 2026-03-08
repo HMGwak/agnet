@@ -111,6 +111,9 @@ export const approveMerge = (id: number, data: ApprovalReq) =>
 export const cancelTask = (id: number) =>
   fetchAPI<Task>(`/tasks/${id}/cancel`, { method: "POST" });
 
+export const archiveTask = (id: number) =>
+  fetchAPI<void>(`/tasks/${id}/archive`, { method: "POST" });
+
 export const deleteTask = (
   id: number,
   options?: { delete_workspace_if_empty?: boolean }
