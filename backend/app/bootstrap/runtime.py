@@ -62,7 +62,7 @@ def create_runtime() -> AppRuntime:
         policy=policy,
         project_config=codex_project,
     )
-    task_logger = TaskLogger(settings.LOGS_DIR)
+    task_logger = TaskLogger(settings.SESSION_LOGS_DIR)
     task_logger.set_ws_manager(ws_manager)
     event_sink = AppEventSink(task_logger, ws_manager)
     store = SQLiteStore()

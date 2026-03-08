@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 from pathlib import Path
@@ -13,6 +14,8 @@ class CodexSidecarManager:
         self.settings = settings
         self.process: asyncio.subprocess.Process | None = None
         self._owns_process = False
+        self._stdout_handle = None
+        self._stderr_handle = None
 
     def _ensure_runtime_files(self) -> None:
         runtime_home = self.settings.CODEX_SDK_HOME
@@ -23,6 +26,38 @@ class CodexSidecarManager:
         config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text(
             'cli_auth_credentials_store = "file"\nforced_login_method = "chatgpt"\n',
+            encoding="utf-8",
+        )
+        self.settings.SESSION_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        self.settings.TASK_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _open_log_handles(self) -> tuple[object, object]:
+        self.settings.SESSION_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        sidecar_out = self.settings.SESSION_LOGS_DIR / "sidecar.out.log"
+        sidecar_err = self.settings.SESSION_LOGS_DIR / "sidecar.err.log"
+        self._stdout_handle = open(sidecar_out, "ab")
+        self._stderr_handle = open(sidecar_err, "ab")
+        return self._stdout_handle, self._stderr_handle
+
+    def _close_log_handles(self) -> None:
+        for handle_attr in ("_stdout_handle", "_stderr_handle"):
+            handle = getattr(self, handle_attr)
+            if handle is not None:
+                handle.close()
+                setattr(self, handle_attr, None)
+
+    def _update_session_metadata(self) -> None:
+        metadata_path = self.settings.SESSION_METADATA_FILE
+        if not metadata_path.exists() or self.process is None:
+            return
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return
+        metadata.setdefault("processes", {})
+        metadata["processes"]["sidecar"] = self.process.pid
+        metadata_path.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
 
@@ -78,6 +113,7 @@ class CodexSidecarManager:
 
         self._ensure_runtime_files()
         env = self._allowlist_env()
+        stdout_handle, stderr_handle = self._open_log_handles()
         self.process = await asyncio.create_subprocess_exec(
             node,
             str(self.settings.CODEX_SIDECAR_ENTRYPOINT),
@@ -86,13 +122,15 @@ class CodexSidecarManager:
             f"--runtime-home={self.settings.CODEX_SDK_HOME}",
             cwd=str(self.settings.CODEX_SIDECAR_DIR),
             env=env,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=stdout_handle,
+            stderr=stderr_handle,
         )
         self._owns_process = True
+        self._update_session_metadata()
 
         for _ in range(50):
             if self.process.returncode is not None:
+                self._close_log_handles()
                 raise RuntimeError("Codex sidecar exited during startup")
             healthy, status = await self._health()
             if healthy:
@@ -104,10 +142,12 @@ class CodexSidecarManager:
                 )
             await asyncio.sleep(0.2)
 
+        self._close_log_handles()
         raise RuntimeError("Codex sidecar did not become healthy in time")
 
     async def stop(self):
         if not self._owns_process or self.process is None or self.process.returncode is not None:
+            self._close_log_handles()
             return
         self.process.terminate()
         try:
@@ -115,3 +155,4 @@ class CodexSidecarManager:
         except asyncio.TimeoutError:
             self.process.kill()
             await self.process.wait()
+        self._close_log_handles()

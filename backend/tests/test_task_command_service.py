@@ -230,7 +230,6 @@ async def test_delete_task_can_delete_empty_feature_workspace():
     await service.delete_task(
         db,
         task_id=7,
-        logs_dir=Path("D:/logs"),
         delete_workspace_if_empty=True,
     )
 

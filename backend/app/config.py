@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     REPOS_DIR: Path = Path("")
     WORKSPACES_DIR: Path = Path("")
     LOGS_DIR: Path = Path("")
+    SESSION_ID: str = ""
+    SESSION_LOGS_DIR: Path = Path("")
     MAX_CONCURRENT_TASKS: int = 6
     CODEX_MODEL: str = "gpt-5.4"
     CODEX_SANDBOX_MODE: str = "workspace-write"
@@ -34,6 +36,10 @@ class Settings(BaseSettings):
             self.WORKSPACES_DIR = self.BASE_DIR / "workspaces"
         if self.LOGS_DIR == Path(""):
             self.LOGS_DIR = self.BASE_DIR / "logs"
+        if self.SESSION_LOGS_DIR == Path(""):
+            self.SESSION_LOGS_DIR = self.LOGS_DIR
+        if not self.SESSION_ID:
+            self.SESSION_ID = self.SESSION_LOGS_DIR.name
         if self.CODEX_SIDECAR_DIR == Path(""):
             for candidate in (
                 self.BASE_DIR / "codex-sidecar",
@@ -98,6 +104,18 @@ class Settings(BaseSettings):
     @property
     def CODEX_PROJECT_CONFIG_FILE(self) -> Path:
         return self.CODEX_PROJECT_DIR / "config.toml"
+
+    @property
+    def TASK_LOGS_DIR(self) -> Path:
+        return self.SESSION_LOGS_DIR / "tasks"
+
+    @property
+    def LOGS_LATEST_MARKER(self) -> Path:
+        return self.LOGS_DIR / "latest"
+
+    @property
+    def SESSION_METADATA_FILE(self) -> Path:
+        return self.SESSION_LOGS_DIR / "session.json"
 
 
 settings = Settings()

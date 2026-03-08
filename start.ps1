@@ -5,10 +5,6 @@ $backendDir = Join-Path $scriptDir "backend"
 $dashboardDir = Join-Path $scriptDir "dashboard"
 $sidecarDir = Join-Path $scriptDir "codex-sidecar"
 $logsDir = Join-Path $scriptDir "logs"
-$backendOutLog = Join-Path $logsDir "backend.out.log"
-$backendErrLog = Join-Path $logsDir "backend.err.log"
-$dashboardOutLog = Join-Path $logsDir "dashboard.out.log"
-$dashboardErrLog = Join-Path $logsDir "dashboard.err.log"
 $codexSdkDir = Join-Path $scriptDir ".codex-sdk"
 $codexHome = Join-Path $codexSdkDir "home"
 $codexAuthFile = Join-Path $codexHome "auth.json"
@@ -39,21 +35,6 @@ function Stop-PortProcess {
     if ($ids.Count -gt 0) {
         Stop-Process -Id $ids -Force -ErrorAction SilentlyContinue
     }
-}
-
-function Reset-LogFile {
-    param([string]$Path)
-
-    for ($attempt = 0; $attempt -lt 20; $attempt++) {
-        try {
-            Set-Content -Path $Path -Value ""
-            return
-        } catch [System.IO.IOException] {
-            Start-Sleep -Milliseconds 250
-        }
-    }
-
-    throw "Failed to reset log file after waiting for release: $Path"
 }
 
 function Ensure-CodexAuth {
@@ -124,16 +105,26 @@ Pop-Location
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
 New-Item -ItemType Directory -Force -Path $codexSdkDir | Out-Null
 New-Item -ItemType Directory -Force -Path $codexHome | Out-Null
+$sessionId = Get-Date -Format "yyMMdd_HHmmss"
+$sessionLogsDir = Join-Path $logsDir $sessionId
+$tasksLogsDir = Join-Path $sessionLogsDir "tasks"
+$latestMarker = Join-Path $logsDir "latest"
+$sessionMetaPath = Join-Path $sessionLogsDir "session.json"
+$backendOutLog = Join-Path $sessionLogsDir "backend.out.log"
+$backendErrLog = Join-Path $sessionLogsDir "backend.err.log"
+$dashboardOutLog = Join-Path $sessionLogsDir "dashboard.out.log"
+$dashboardErrLog = Join-Path $sessionLogsDir "dashboard.err.log"
+New-Item -ItemType Directory -Force -Path $sessionLogsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $tasksLogsDir | Out-Null
+Set-Content -Path $latestMarker -Value $sessionId
 if (-not (Test-Path $codexConfigFile)) {
     Set-Content -Path $codexConfigFile -Value "cli_auth_credentials_store = `"file`"`nforced_login_method = `"chatgpt`"`n"
 }
 Ensure-CodexAuth -AuthFile $codexAuthFile -LoginScript (Join-Path $scriptDir "codex-login.ps1")
-Reset-LogFile -Path $backendOutLog
-Reset-LogFile -Path $backendErrLog
-Reset-LogFile -Path $dashboardOutLog
-Reset-LogFile -Path $dashboardErrLog
 
 $npmCmd = (Get-Command "npm.cmd" -ErrorAction Stop).Source
+$env:SESSION_ID = $sessionId
+$env:SESSION_LOGS_DIR = $sessionLogsDir
 
 $backend = Start-Process `
     -FilePath $venvPython `
@@ -153,10 +144,28 @@ $frontend = Start-Process `
     -WindowStyle Hidden `
     -PassThru
 
+@{
+    session_id = $sessionId
+    started_at = (Get-Date).ToString("o")
+    logs_dir = $sessionLogsDir
+    ports = @{
+        backend = $backendPort
+        dashboard = $dashboardPort
+        sidecar = $sidecarPort
+    }
+    processes = @{
+        backend = $backend.Id
+        dashboard = $frontend.Id
+        sidecar = $null
+    }
+} | ConvertTo-Json -Depth 5 | Set-Content -Path $sessionMetaPath
+
 Write-Host ""
+Write-Host "Session:   $sessionId"
 Write-Host "Backend:   http://localhost:$backendPort"
 Write-Host "Dashboard: http://localhost:$dashboardPort"
 Write-Host "Codex auth cache: $codexAuthFile"
+Write-Host "Session logs: $sessionLogsDir"
 Write-Host "Backend logs:   $backendOutLog / $backendErrLog"
 Write-Host "Dashboard logs: $dashboardOutLog / $dashboardErrLog"
 Write-Host "Press Ctrl+C to stop."

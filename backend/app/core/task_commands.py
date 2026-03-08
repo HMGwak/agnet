@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.adapters.sqlite_store import SQLiteStore
 from app.core.policies import append_follow_up_instructions
 from app.core.project_policy import ProjectPolicy, classify_main_workspace_request
@@ -195,7 +193,6 @@ class TaskCommandService:
         self,
         db,
         task_id: int,
-        logs_dir: Path,
         delete_workspace_if_empty: bool = False,
     ):
         task = await self.store.get_task(db, task_id)
@@ -214,15 +211,12 @@ class TaskCommandService:
         workspace = None
         if task.workspace_id is not None:
             workspace = await self.store.get_workspace(db, task.workspace_id)
-        log_path = logs_dir / f"task-{task.id}.log"
 
         await self.workflow.codex.cancel(task.id)
 
         await self.store.delete_task_records(db, task.id)
         await db.delete(task)
         await db.commit()
-        if log_path.exists():
-            log_path.unlink(missing_ok=True)
         await self.events.broadcast_task_deleted(task_id)
 
         if (

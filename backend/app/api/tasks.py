@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -131,7 +129,6 @@ async def delete_task(
         await request.app.state.services.task_commands.delete_task(
             db,
             task_id,
-            Path(settings.LOGS_DIR),
             delete_workspace_if_empty,
         )
     except LookupError as exc:
@@ -141,9 +138,8 @@ async def delete_task(
 
 
 @router.get("/{task_id}/logs")
-async def get_task_logs(task_id: int):
-    log_path = Path(settings.LOGS_DIR) / f"task-{task_id}.log"
-    if not log_path.exists():
+async def get_task_logs(task_id: int, request: Request):
+    content = await request.app.state.task_logger.read_logs(task_id)
+    if not content:
         raise HTTPException(status_code=404, detail="Log file not found")
-    content = log_path.read_text()
     return PlainTextResponse(content)
