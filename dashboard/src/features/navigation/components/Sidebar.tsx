@@ -3,12 +3,13 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { LayoutDashboard, GitFork } from "lucide-react";
+import { LayoutDashboard, GitFork, BookOpen } from "lucide-react";
 import { useRepos } from "@/hooks/useTasks";
 
 const navItems = [
   { href: "/tasks", label: "Tasks", icon: LayoutDashboard },
   { href: "/repos", label: "Repos", icon: GitFork },
+  { href: "/manual", label: "User Manual", icon: BookOpen },
 ];
 
 export function Sidebar() {
@@ -66,11 +67,10 @@ function SidebarContent() {
             <div key={item.href}>
               <Link
                 href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                  active
+                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${active
                     ? "bg-gray-700 text-white"
                     : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
-                }`}
+                  }`}
               >
                 <Icon size={18} />
                 {item.label}
@@ -87,11 +87,10 @@ function SidebarContent() {
                         <Link
                           key={repo.id}
                           href={`/tasks?repo_id=${repo.id}`}
-                          className={`block rounded-md px-3 py-1.5 text-xs transition-colors ${
-                            repoActive
+                          className={`block rounded-md px-3 py-1.5 text-xs transition-colors ${repoActive
                               ? "bg-gray-800 text-white"
                               : "text-gray-500 hover:bg-gray-800 hover:text-gray-200"
-                          }`}
+                            }`}
                         >
                           {repo.name}
                         </Link>
