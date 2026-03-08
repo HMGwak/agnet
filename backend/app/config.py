@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_TASKS: int = 6
     CODEX_MODEL: str = "gpt-5.4"
     CODEX_SANDBOX_MODE: str = "workspace-write"
-    CODEX_WINDOWS_UNSANDBOXED_WORKAROUND: bool = False
+    CODEX_WINDOWS_UNSANDBOXED_WORKAROUND: bool = True
     CODEX_APPROVAL_POLICY: str = "never"
     CODEX_RUN_TIMEOUT_S: int = 300
     CODEX_SIDECAR_HOST: str = "127.0.0.1"
