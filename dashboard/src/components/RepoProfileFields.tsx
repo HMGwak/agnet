@@ -94,14 +94,14 @@ export function RepoProfileFields({ value, onChange, missingFields = [] }: Props
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <div>
           {renderLabel("language")}
           <input
             type="text"
             value={value.language}
             onChange={(event) => setText("language", event.target.value)}
-            placeholder="Python, TypeScript"
+            placeholder="Python, JS"
             className={inputClass("language")}
           />
         </div>
@@ -115,9 +115,6 @@ export function RepoProfileFields({ value, onChange, missingFields = [] }: Props
             className={inputClass("frameworks")}
           />
         </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
         <div>
           {renderLabel("package_manager")}
           <input
@@ -141,9 +138,6 @@ export function RepoProfileFields({ value, onChange, missingFields = [] }: Props
             <option value="relaxed">Relaxed</option>
           </select>
         </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
         <div>
           {renderLabel("deployment_sensitivity")}
           <select
@@ -163,20 +157,20 @@ export function RepoProfileFields({ value, onChange, missingFields = [] }: Props
             type="text"
             value={value.deploy_considerations}
             onChange={(event) => setText("deploy_considerations", event.target.value)}
-            placeholder="Local only, staging first, production critical"
+            placeholder="Considerations..."
             className={inputClass("deploy_considerations")}
           />
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
         <div>
           {renderLabel("dev_commands")}
           <textarea
             value={value.dev_commands.join("\n")}
             onChange={(event) => setLines("dev_commands", event.target.value)}
-            rows={4}
-            placeholder={"cd backend && uv sync --extra dev\ncd dashboard && npm run dev"}
+            rows={3}
+            placeholder={"e.g. npm run dev"}
             className={inputClass("dev_commands")}
           />
         </div>
@@ -185,21 +179,18 @@ export function RepoProfileFields({ value, onChange, missingFields = [] }: Props
           <textarea
             value={value.test_commands.join("\n")}
             onChange={(event) => setLines("test_commands", event.target.value)}
-            rows={4}
-            placeholder={"cd backend && uv run pytest\ncd dashboard && npm run lint"}
+            rows={3}
+            placeholder={"e.g. npm test"}
             className={inputClass("test_commands")}
           />
         </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
         <div>
           {renderLabel("build_commands")}
           <textarea
             value={value.build_commands.join("\n")}
             onChange={(event) => setLines("build_commands", event.target.value)}
             rows={3}
-            placeholder="npm run build"
+            placeholder="e.g. npm run build"
             className={inputClass("build_commands")}
           />
         </div>
@@ -209,20 +200,17 @@ export function RepoProfileFields({ value, onChange, missingFields = [] }: Props
             value={value.lint_commands.join("\n")}
             onChange={(event) => setLines("lint_commands", event.target.value)}
             rows={3}
-            placeholder="npm run lint"
+            placeholder="e.g. npm run lint"
             className={inputClass("lint_commands")}
           />
         </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
         <div>
           {renderLabel("environment_notes")}
           <textarea
             value={value.environment_notes.join("\n")}
             onChange={(event) => setLines("environment_notes", event.target.value)}
             rows={3}
-            placeholder={"Needs .env\nUses local SQLite"}
+            placeholder={"e.g. Needs .env"}
             className={inputClass("environment_notes")}
           />
         </div>
@@ -232,7 +220,7 @@ export function RepoProfileFields({ value, onChange, missingFields = [] }: Props
             value={value.safety_rules.join("\n")}
             onChange={(event) => setLines("safety_rules", event.target.value)}
             rows={3}
-            placeholder={"Do not deploy from feature branches\nRun tests before merge"}
+            placeholder={"e.g. No raw push"}
             className={inputClass("safety_rules")}
           />
         </div>
