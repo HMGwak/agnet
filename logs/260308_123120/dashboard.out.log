@@ -1,0 +1,27 @@
+
+> dashboard@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.68.200:3000
+
+✓ Starting...
+✓ Ready in 918ms
+ GET /tasks?repo_id=1 200 in 596ms (compile: 463ms, render: 133ms)
+ GET / 307 in 245ms (compile: 49ms, render: 196ms)
+ GET /tasks 200 in 90ms (compile: 7ms, render: 83ms)
+✓ Compiled in 136ms
+ GET /tasks?repo_id=1 200 in 80ms (compile: 48ms, render: 33ms)
+ GET /tasks?repo_id=1 200 in 200ms (compile: 9ms, render: 191ms)
+ GET /tasks?repo_id=1 200 in 37ms (compile: 3ms, render: 34ms)
+ GET /tasks?repo_id=1 200 in 88ms (compile: 8ms, render: 80ms)
+ GET /tasks?repo_id=1 200 in 67ms (compile: 8ms, render: 59ms)
+✓ Compiled in 108ms
+✓ Compiled in 37ms
+✓ Compiled in 46ms
+✓ Compiled in 54ms
+✓ Compiled in 61ms
+✓ Compiled in 87ms
+✓ Compiled in 60ms
+✓ Compiled in 70ms

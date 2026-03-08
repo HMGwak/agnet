@@ -1,0 +1,68 @@
+INFO:     Started server process [15064]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+INFO:     127.0.0.1:56680 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:57392 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:62785 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:55860 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:53442 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52774 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:57467 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:60551 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:54332 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52834 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:53911 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:61411 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     connection closed
+INFO:     connection closed
+INFO:     connection closed
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:58517 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:56562 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:60164 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:49243 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:53218 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:56153 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:59486 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:58519 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:62403 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:64134 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52016 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:57015 - "WebSocket /ws?task_id=1" [accepted]
+INFO:     connection open

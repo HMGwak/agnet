@@ -1,0 +1,15 @@
+{
+  "ports": {
+    "backend": 8001,
+    "dashboard": 3000,
+    "sidecar": 8765
+  },
+  "session_id": "260308_123120",
+  "logs_dir": "D:\\Python\\agent\\logs\\260308_123120",
+  "processes": {
+    "backend": 19920,
+    "dashboard": 16236,
+    "sidecar": 10468
+  },
+  "started_at": "2026-03-08T12:31:20.3179774+09:00"
+}
