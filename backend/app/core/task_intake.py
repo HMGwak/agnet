@@ -4,8 +4,10 @@ import json
 import re
 from pathlib import Path
 
+import httpx
 from pydantic import ValidationError
 
+from app.core.project_policy import ProjectPolicy
 from app.core.policies import slugify
 from app.schemas import (
     TaskIntakeDraft,
@@ -15,9 +17,10 @@ from app.schemas import (
 
 
 class TaskIntakeService:
-    def __init__(self, store, codex):
+    def __init__(self, store, codex, policy: ProjectPolicy):
         self.store = store
         self.codex = codex
+        self.policy = policy
 
     async def analyze(self, db, body: TaskIntakeRequest) -> TaskIntakeResponse:
         repo = await self.store.get_repo(db, body.repo_id)
@@ -37,12 +40,15 @@ class TaskIntakeService:
             conversation=body.conversation,
             current_draft=body.draft,
         )
-        exit_code, output = await self.codex.run_codex(prompt, cwd=Path(repo.path))
-        if exit_code == 0:
-            try:
-                return self._parse_response(output)
-            except ValueError:
-                pass
+        try:
+            payload = await self.codex.run_intake(
+                prompt,
+                cwd=Path(repo.path),
+                output_schema=self._response_schema(),
+            )
+            return TaskIntakeResponse.model_validate(payload)
+        except (httpx.HTTPError, OSError, RuntimeError):
+            pass
 
         return self._fallback_response(
             workspaces=workspaces,
@@ -51,6 +57,46 @@ class TaskIntakeService:
             conversation=body.conversation,
             current_draft=body.draft,
         )
+
+    def _response_schema(self) -> dict:
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "draft": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "workspace_mode": {"type": "string", "enum": ["existing", "new", "unspecified"]},
+                        "workspace_id": {"type": ["integer", "null"]},
+                        "new_workspace_name": {"type": ["string", "null"]},
+                        "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "blocked_by_task_id": {"type": ["integer", "null"]},
+                        "scheduled_for": {"type": ["string", "null"]},
+                    },
+                    "required": [
+                        "workspace_mode",
+                        "workspace_id",
+                        "new_workspace_name",
+                        "title",
+                        "description",
+                        "blocked_by_task_id",
+                        "scheduled_for",
+                    ],
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "needs_confirmation": {"type": "boolean"},
+                "notes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+            "required": ["draft", "questions", "needs_confirmation", "notes"],
+        }
 
     def _build_prompt(
         self,
@@ -104,9 +150,12 @@ class TaskIntakeService:
             "Return JSON only. Do not include markdown fences or any extra text.\n"
             "If key information is missing, ask concise follow-up questions in `questions`.\n"
             "Only use the provided repository context. Do not invent workspace ids or task ids.\n"
+            "This project uses a fixed internal quality pipeline: Planner -> Critic -> Executor -> Tester -> Reviewer -> Human Merge Approval.\n"
             "Prefer an existing workspace when the request sounds like continuing existing work.\n"
             "Prefer a new workspace when the request sounds isolated or new.\n"
             "If unsure about workspace choice, set `workspace_mode` to `unspecified` and ask.\n"
+            "The main workspace is protected. New feature work requested on main must use a feature workspace.\n"
+            "Hotfix, planning, review, and triage work may stay on main.\n"
             "Only set `blocked_by_task_id` when the request explicitly depends on an existing task.\n"
             "Only set `scheduled_for` when the request clearly specifies a time.\n"
             "Use this JSON schema exactly:\n"
@@ -135,6 +184,22 @@ class TaskIntakeService:
             + "\n\n"
             + "Current draft:\n"
             + json.dumps(draft_payload, ensure_ascii=False)
+            + "\n\n"
+            + "Policy summary:\n"
+            + json.dumps(
+                {
+                    "plan_required": self.policy.plan_required,
+                    "critique_required": self.policy.critique_required,
+                    "critique_max_rounds": self.policy.critique_max_rounds,
+                    "test_fix_loops": self.policy.test_fix_loops,
+                    "review_required": self.policy.review_required,
+                    "merge_human_approval": self.policy.merge_human_approval,
+                    "main_allow_feature_work": self.policy.main_allow_feature_work,
+                    "main_allow_hotfix": self.policy.main_allow_hotfix,
+                    "main_allow_plan_review": self.policy.main_allow_plan_review,
+                },
+                ensure_ascii=False,
+            )
             + "\n\n"
             + "Conversation so far:\n"
             + ("\n".join(conversation_lines) if conversation_lines else "(none)")

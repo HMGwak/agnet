@@ -1,0 +1,41 @@
+[quality]
+plan_required = true
+critique_required = true
+critique_max_rounds = 2
+test_fix_loops = 2
+review_required = true
+merge_human_approval = true
+allow_user_override = false
+allow_repo_override = false
+
+[main]
+main_allow_feature_work = false
+main_allow_hotfix = true
+main_allow_plan_review = true
+auto_fork_feature_workspace_from_main = true
+hotfix_keywords = [
+  "hotfix",
+  "fix",
+  "bug",
+  "patch",
+  "regression",
+  "rollback",
+  "긴급",
+  "버그",
+  "오류",
+  "수정",
+]
+plan_review_keywords = [
+  "plan",
+  "planning",
+  "review",
+  "triage",
+  "investigate",
+  "analysis",
+  "audit",
+  "계획",
+  "리뷰",
+  "검토",
+  "분석",
+  "조사",
+]

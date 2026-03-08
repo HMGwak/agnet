@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from app.core.contracts import AgentRunner, EventSink, WorkspaceManager
 from app.models import Repo, Run, Task, TaskStatus, Workspace
+
+
+class NeedsAttentionError(RuntimeError):
+    pass
 
 
 class SymphonyWorkflowEngine:
@@ -38,6 +43,7 @@ class SymphonyWorkflowEngine:
 
             try:
                 task_input = self.codex.format_task_input(task.title, task.description)
+                log_cb = lambda line: self.events.log(task.id, line)  # noqa: E731
 
                 if task.status == TaskStatus.PENDING:
                     await self._update_status(session, task, TaskStatus.PREPARING_WORKSPACE)
@@ -61,67 +67,26 @@ class SymphonyWorkflowEngine:
                     await session.commit()
 
                     await self._update_status(session, task, TaskStatus.PLANNING)
-                    log_cb = lambda line: self.events.log(task.id, line)  # noqa: E731
-                    exit_code, output = await self.codex.generate_plan(
-                        Path(task.workspace_path),
+                    task.plan_text = await self._run_planning_stage(
+                        session,
+                        task,
+                        repo,
+                        workspace,
                         task_input,
-                        log_callback=log_cb,
-                        task_id=task.id,
+                        log_cb,
                     )
-                    run = Run(
-                        task_id=task.id,
-                        phase="plan",
-                        exit_code=exit_code,
-                        log_path=str(self.events.get_log_path(task.id)),
-                    )
-                    session.add(run)
-                    if exit_code != 0:
-                        raise RuntimeError(f"Plan generation failed: {output[-500:]}")
-                    task.plan_text = output
                     await session.commit()
-
-                    await self._update_status(session, task, TaskStatus.AWAIT_PLAN_APPROVAL)
-                    return
+                    await self._update_status(session, task, TaskStatus.IMPLEMENTING)
 
                 if task.status == TaskStatus.IMPLEMENTING:
-                    log_cb = lambda line: self.events.log(task.id, line)  # noqa: E731
-                    exit_code, output = await self.codex.implement_plan(
-                        Path(task.workspace_path),
-                        task.plan_text,
+                    await self._run_implementation_pipeline(
+                        session,
+                        task,
+                        repo,
+                        workspace,
                         task_input,
-                        log_callback=log_cb,
-                        task_id=task.id,
+                        log_cb,
                     )
-                    run = Run(
-                        task_id=task.id,
-                        phase="implement",
-                        exit_code=exit_code,
-                        log_path=str(self.events.get_log_path(task.id)),
-                    )
-                    session.add(run)
-                    if exit_code != 0:
-                        raise RuntimeError(f"Implementation failed: {output[-500:]}")
-
-                    await self._update_status(session, task, TaskStatus.TESTING)
-                    exit_code, output = await self.codex.run_tests(
-                        Path(task.workspace_path),
-                        log_callback=log_cb,
-                        task_id=task.id,
-                    )
-                    run = Run(
-                        task_id=task.id,
-                        phase="test",
-                        exit_code=exit_code,
-                        log_path=str(self.events.get_log_path(task.id)),
-                    )
-                    session.add(run)
-
-                    task.diff_text = await self.git.get_diff(
-                        Path(task.workspace_path), workspace.base_branch if workspace else repo.default_branch
-                    )
-                    await session.commit()
-
-                    await self._update_status(session, task, TaskStatus.AWAIT_MERGE_APPROVAL)
                     return
 
                 if task.status == TaskStatus.MERGING:
@@ -142,6 +107,11 @@ class SymphonyWorkflowEngine:
                         raise RuntimeError(f"Merge failed: {msg}")
                     await self._update_status(session, task, TaskStatus.DONE)
 
+            except NeedsAttentionError as exc:
+                await self.events.log(task.id, f"NEEDS ATTENTION: {exc}")
+                task.error_message = str(exc)
+                await session.commit()
+                await self._update_status(session, task, TaskStatus.NEEDS_ATTENTION)
             except Exception as exc:
                 await self.events.log(task.id, f"ERROR: {exc}")
                 task.error_message = str(exc)
@@ -153,3 +123,218 @@ class SymphonyWorkflowEngine:
                         await self.worker_pool.enqueue(task.id)
                 else:
                     await self._update_status(session, task, TaskStatus.FAILED)
+
+    async def _run_planning_stage(self, session, task, repo, workspace, task_input: str, log_cb):
+        workspace_path = Path(task.workspace_path)
+        await self.events.log(task.id, "Stage: plan")
+        exit_code, output = await self.codex.generate_plan(
+            workspace_path,
+            task_input,
+            agent_name="planner",
+            log_callback=log_cb,
+            task_id=task.id,
+            repo_name=repo.name,
+            workspace_name=workspace.name if workspace else "",
+            branch_name=workspace.branch_name if workspace else task.branch_name or "",
+            base_branch=workspace.base_branch if workspace else repo.default_branch,
+        )
+        session.add(
+            Run(
+                task_id=task.id,
+                phase="plan",
+                exit_code=exit_code,
+                log_path=str(self.events.get_log_path(task.id)),
+            )
+        )
+        if exit_code != 0:
+            raise RuntimeError(f"Plan generation failed: {output[-500:]}")
+
+        plan_text = output.strip()
+        if not plan_text:
+            raise RuntimeError("Plan generation returned an empty plan")
+
+        critique_rounds = max(1, self.codex.policy.critique_max_rounds)
+        if not self.codex.policy.critique_required:
+            return plan_text
+
+        last_critique = ""
+        for round_index in range(1, critique_rounds + 1):
+            await self.events.log(
+                task.id,
+                f"Stage: critique ({round_index}/{critique_rounds})",
+            )
+            exit_code, critique_output = await self.codex.critique_plan(
+                workspace_path,
+                plan_text,
+                task_input,
+                agent_name="critic",
+                log_callback=log_cb,
+                task_id=task.id,
+                repo_name=repo.name,
+                workspace_name=workspace.name if workspace else "",
+                branch_name=workspace.branch_name if workspace else task.branch_name or "",
+                base_branch=workspace.base_branch if workspace else repo.default_branch,
+            )
+            session.add(
+                Run(
+                    task_id=task.id,
+                    phase="critique",
+                    exit_code=exit_code,
+                    log_path=str(self.events.get_log_path(task.id)),
+                )
+            )
+            if exit_code != 0:
+                raise RuntimeError(f"Plan critique failed: {critique_output[-500:]}")
+
+            critique = self._parse_plan_critique(critique_output)
+            last_critique = critique_output
+            plan_text = critique["plan"]
+            await self.events.log(task.id, f"Critic verdict: {critique['verdict']}. {critique['summary']}")
+            if critique["verdict"] == "APPROVED":
+                return plan_text
+
+        raise NeedsAttentionError(
+            "Plan critique did not converge within the configured rounds.\n\n"
+            f"{last_critique.strip()}"
+        )
+
+    async def _run_implementation_pipeline(self, session, task, repo, workspace, task_input: str, log_cb):
+        workspace_path = Path(task.workspace_path)
+        await self.events.log(task.id, "Stage: implement")
+        exit_code, output = await self.codex.implement_plan(
+            workspace_path,
+            task.plan_text or "",
+            task_input,
+            agent_name="executor",
+            log_callback=log_cb,
+            task_id=task.id,
+            repo_name=repo.name,
+            workspace_name=workspace.name if workspace else "",
+            branch_name=workspace.branch_name if workspace else task.branch_name or "",
+            base_branch=workspace.base_branch if workspace else repo.default_branch,
+        )
+        session.add(
+            Run(
+                task_id=task.id,
+                phase="implement",
+                exit_code=exit_code,
+                log_path=str(self.events.get_log_path(task.id)),
+            )
+        )
+        if exit_code != 0:
+            raise RuntimeError(f"Implementation failed: {output[-500:]}")
+
+        if not await self.git.has_working_tree_changes(workspace_path):
+            raise NeedsAttentionError(
+                "Implementation completed without creating any file changes in the workspace.\n\n"
+                "The executor returned success, but the worktree is unchanged. "
+                "No implementation is available for testing yet."
+            )
+
+        await self._update_status(session, task, TaskStatus.TESTING)
+        await self.events.log(
+            task.id,
+            f"Stage: test (max repair loops {self.codex.policy.test_fix_loops})",
+        )
+        exit_code, test_output = await self.codex.run_tests(
+            workspace_path,
+            agent_name="tester",
+            task_description=task_input,
+            plan_text=task.plan_text or "",
+            log_callback=log_cb,
+            task_id=task.id,
+            repo_name=repo.name,
+            workspace_name=workspace.name if workspace else "",
+            branch_name=workspace.branch_name if workspace else task.branch_name or "",
+            base_branch=workspace.base_branch if workspace else repo.default_branch,
+        )
+        session.add(
+            Run(
+                task_id=task.id,
+                phase="test",
+                exit_code=exit_code,
+                log_path=str(self.events.get_log_path(task.id)),
+            )
+        )
+        if exit_code != 0:
+            raise RuntimeError(f"Testing failed: {test_output[-500:]}")
+
+        test_result = self._parse_stage_verdict(test_output, allowed={"PASS", "NEEDS_ATTENTION"})
+        await self.events.log(task.id, f"Tester verdict: {test_result['verdict']}. {test_result['summary']}")
+        if test_result["verdict"] != "PASS":
+            raise NeedsAttentionError(
+                "Testing could not reach a passing state within the configured repair loop.\n\n"
+                f"{test_output.strip()}"
+            )
+
+        task.diff_text = await self.git.get_diff(
+            workspace_path,
+            workspace.base_branch if workspace else repo.default_branch,
+        )
+        await session.commit()
+
+        if self.codex.policy.review_required:
+            await self.events.log(task.id, "Stage: review")
+            exit_code, review_output = await self.codex.review_result(
+                workspace_path,
+                task.plan_text or "",
+                task_input,
+                test_output,
+                task.diff_text or "",
+                agent_name="reviewer",
+                log_callback=log_cb,
+                task_id=task.id,
+                repo_name=repo.name,
+                workspace_name=workspace.name if workspace else "",
+                branch_name=workspace.branch_name if workspace else task.branch_name or "",
+                base_branch=workspace.base_branch if workspace else repo.default_branch,
+            )
+            session.add(
+                Run(
+                    task_id=task.id,
+                    phase="review",
+                    exit_code=exit_code,
+                    log_path=str(self.events.get_log_path(task.id)),
+                )
+            )
+            if exit_code != 0:
+                raise RuntimeError(f"Review failed: {review_output[-500:]}")
+
+            review_result = self._parse_stage_verdict(
+                review_output,
+                allowed={"PASS", "NEEDS_ATTENTION"},
+            )
+            await self.events.log(
+                task.id,
+                f"Reviewer verdict: {review_result['verdict']}. {review_result['summary']}",
+            )
+            if review_result["verdict"] != "PASS":
+                raise NeedsAttentionError(
+                    "Reviewer blocked merge readiness.\n\n"
+                    f"{review_output.strip()}"
+                )
+
+        await session.commit()
+        await self._update_status(session, task, TaskStatus.AWAIT_MERGE_APPROVAL)
+
+    def _parse_plan_critique(self, output: str) -> dict[str, str]:
+        parsed = self._parse_stage_verdict(output, allowed={"APPROVED", "REVISE"})
+        plan_match = re.search(r"^PLAN:\s*(.*)$", output, re.MULTILINE | re.DOTALL)
+        if not plan_match:
+            raise RuntimeError("Plan critique output is missing a PLAN section")
+        plan_text = plan_match.group(1).strip()
+        if not plan_text:
+            raise RuntimeError("Plan critique output returned an empty PLAN section")
+        parsed["plan"] = plan_text
+        return parsed
+
+    def _parse_stage_verdict(self, output: str, *, allowed: set[str]) -> dict[str, str]:
+        verdict_match = re.search(r"^VERDICT:\s*(.+)$", output, re.MULTILINE)
+        summary_match = re.search(r"^SUMMARY:\s*(.+)$", output, re.MULTILINE)
+        if not verdict_match:
+            raise RuntimeError("Stage output is missing VERDICT")
+        verdict = verdict_match.group(1).strip().upper()
+        if verdict not in allowed:
+            raise RuntimeError(f"Unexpected verdict '{verdict}'")
+        summary = summary_match.group(1).strip() if summary_match else ""
+        return {"verdict": verdict, "summary": summary}

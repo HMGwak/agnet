@@ -102,12 +102,6 @@ export const resumeTask = (id: number, data: TaskResumeReq) =>
     body: JSON.stringify(data),
   });
 
-export const approvePlan = (id: number, data: ApprovalReq) =>
-  fetchAPI<Approval>(`/tasks/${id}/approve-plan`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-
 export const approveMerge = (id: number, data: ApprovalReq) =>
   fetchAPI<Approval>(`/tasks/${id}/approve-merge`, {
     method: "POST",

@@ -152,6 +152,18 @@ class GitManager:
         )
         return out
 
+    async def has_working_tree_changes(self, workspace_path: Path) -> bool:
+        rc, out, err = await self._run_git(
+            "-C",
+            str(workspace_path),
+            "status",
+            "--short",
+            "--untracked-files=all",
+        )
+        if rc != 0:
+            raise RuntimeError(f"Failed to inspect worktree changes: {err.strip()}")
+        return bool(out.strip())
+
     async def merge_to_main(
         self,
         repo_path: Path,

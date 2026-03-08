@@ -2,18 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSWRConfig } from "swr";
 import { ArrowLeft, Loader2, Trash2, XCircle } from "lucide-react";
 import { useTask } from "@/hooks/useTasks";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { cancelTask, deleteTask, resumeTask } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
-import { PlanApproval } from "@/components/PlanApproval";
 import { MergeApproval } from "@/components/MergeApproval";
 import { DiffViewer } from "@/components/DiffViewer";
 import { LogStream } from "@/components/LogStream";
-import { formatKSTDateTime } from "@/lib/time";
+import { formatKSTDateTime, parseBackendTimestamp } from "@/lib/time";
 
 type Props = {
   taskId: number;
@@ -36,12 +35,80 @@ export function TaskDetailContent({
   const [resuming, setResuming] = useState(false);
   const [followUpComment, setFollowUpComment] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
-  useWebSocket(taskId, (msg) => {
+  const { connected } = useWebSocket(taskId, (msg) => {
     if (msg.type === "task_state_changed") {
       mutate();
     }
   });
+
+  useEffect(() => {
+    if (!task) {
+      return;
+    }
+    const parsed = parseBackendTimestamp(task.updated_at);
+    if (!Number.isNaN(parsed)) {
+      setLastActivityAt(parsed);
+    }
+  }, [task?.updated_at, task]);
+
+  const isRunning = !!task && [
+    "PREPARING_WORKSPACE",
+    "PLANNING",
+    "IMPLEMENTING",
+    "TESTING",
+    "MERGING",
+  ].includes(task.status);
+
+  useEffect(() => {
+    if (!isRunning) {
+      return;
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 5000);
+    return () => window.clearInterval(timer);
+  }, [isRunning]);
+
+  const executionState = useMemo(() => {
+    if (!task) {
+      return { headline: "", detail: "", activityMs: null as number | null };
+    }
+
+    const fallbackMs = parseBackendTimestamp(task.updated_at);
+    const activityMs = lastActivityAt ?? (Number.isNaN(fallbackMs) ? null : fallbackMs);
+    const idleSeconds = activityMs === null ? null : Math.max(0, Math.floor((now - activityMs) / 1000));
+
+    let headline = "Waiting";
+    if (task.status === "PREPARING_WORKSPACE") headline = "Preparing workspace";
+    if (task.status === "PLANNING") headline = "Planning in progress";
+    if (task.status === "IMPLEMENTING") headline = "Implementation in progress";
+    if (task.status === "TESTING") headline = "Testing in progress";
+    if (task.status === "MERGING") headline = "Merging in progress";
+    if (task.status === "PENDING") headline = "Queued";
+    if (task.status === "AWAIT_MERGE_APPROVAL") headline = "Waiting for merge approval";
+    if (task.status === "NEEDS_ATTENTION") headline = "Needs attention";
+    if (task.status === "FAILED") headline = "Execution failed";
+    if (task.status === "CANCELLED") headline = "Execution cancelled";
+    if (task.status === "DONE") headline = "Completed";
+
+    let detail = "";
+    if (isRunning) {
+      if (!connected) {
+        detail = "Live updates disconnected.";
+      } else if (idleSeconds === null) {
+        detail = "Running, waiting for the first log line.";
+      } else if (idleSeconds < 15) {
+        detail = "Receiving live output.";
+      } else {
+        detail = `Still running. No new log output for ${idleSeconds}s.`;
+      }
+    } else if (activityMs !== null) {
+      detail = `Last activity ${formatKSTDateTime(new Date(activityMs).toISOString())}.`;
+    }
+
+    return { headline, detail, activityMs };
+  }, [connected, isRunning, lastActivityAt, now, task]);
 
   if (isLoading) {
     return (
@@ -191,6 +258,21 @@ export function TaskDetailContent({
         </div>
       )}
 
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h2 className="text-sm font-semibold text-gray-700 mb-2">Execution Status</h2>
+        <div className="space-y-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2">
+            {isRunning && <Loader2 className="animate-spin text-sky-600" size={14} />}
+            <span>{executionState.headline}</span>
+          </div>
+          {executionState.detail && <p>{executionState.detail}</p>}
+          <p>Live connection: {connected ? "Connected" : "Disconnected"}</p>
+          {executionState.activityMs !== null && (
+            <p>Last activity: {formatKSTDateTime(new Date(executionState.activityMs).toISOString())}</p>
+          )}
+        </div>
+      </div>
+
       {task.workspace_name && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-2">Workspace</h2>
@@ -266,15 +348,11 @@ export function TaskDetailContent({
         </div>
       )}
 
-      {task.status === "AWAIT_PLAN_APPROVAL" && task.plan_text && (
-        <PlanApproval taskId={task.id} planText={task.plan_text} onApproved={() => mutate()} />
-      )}
-
       {task.status === "AWAIT_MERGE_APPROVAL" && task.diff_text && (
         <MergeApproval taskId={task.id} diffText={task.diff_text} onApproved={() => mutate()} />
       )}
 
-      {task.plan_text && task.status !== "AWAIT_PLAN_APPROVAL" && (
+      {task.plan_text && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-2">Plan</h2>
           <pre className="text-xs text-gray-600 overflow-auto max-h-[300px] whitespace-pre-wrap">
@@ -290,7 +368,7 @@ export function TaskDetailContent({
         </div>
       )}
 
-      <LogStream taskId={task.id} />
+      <LogStream taskId={task.id} onActivity={setLastActivityAt} />
     </div>
   );
 }

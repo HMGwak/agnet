@@ -1,4 +1,4 @@
 @echo off
-set SCRIPT_DIR=%~dp0
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%codex-login.ps1"
-exit /b %ERRORLEVEL%
+setlocal
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0codex-login.ps1"
+exit /b %errorlevel%

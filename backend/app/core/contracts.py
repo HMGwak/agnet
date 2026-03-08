@@ -20,6 +20,7 @@ class WorkspaceManager(Protocol):
         base_branch: str = "main",
     ) -> Path: ...
     async def cleanup_worktree(self, repo_path: Path, workspace_path: Path) -> None: ...
+    async def has_working_tree_changes(self, workspace_path: Path) -> bool: ...
     async def get_diff(self, workspace_path: Path, base_branch: str = "main") -> str: ...
     async def merge_to_main(
         self,
@@ -34,6 +35,13 @@ class AgentRunner(Protocol):
     def format_task_input(self, task_title: str, task_description: str) -> str: ...
     async def cancel(self, task_id: int) -> None: ...
     async def generate_plan(self, workspace_path: Path, task_description: str, **kw) -> tuple[int, str]: ...
+    async def critique_plan(
+        self,
+        workspace_path: Path,
+        plan_text: str,
+        task_description: str,
+        **kw,
+    ) -> tuple[int, str]: ...
     async def implement_plan(
         self,
         workspace_path: Path,
@@ -42,6 +50,15 @@ class AgentRunner(Protocol):
         **kw,
     ) -> tuple[int, str]: ...
     async def run_tests(self, workspace_path: Path, **kw) -> tuple[int, str]: ...
+    async def review_result(
+        self,
+        workspace_path: Path,
+        plan_text: str,
+        task_description: str,
+        test_output: str,
+        diff_text: str,
+        **kw,
+    ) -> tuple[int, str]: ...
 
 
 class EventSink(Protocol):

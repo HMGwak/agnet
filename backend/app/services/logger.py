@@ -5,16 +5,17 @@ import aiofiles
 
 
 class TaskLogger:
-    def __init__(self, logs_dir: Path):
-        self.logs_dir = logs_dir
-        self.logs_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, session_logs_dir: Path):
+        self.session_logs_dir = session_logs_dir
+        self.tasks_dir = session_logs_dir / "tasks"
+        self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self._ws_manager: "WebSocketManager | None" = None  # noqa: F821
 
     def set_ws_manager(self, manager):
         self._ws_manager = manager
 
     def get_log_path(self, task_id: int) -> Path:
-        return self.logs_dir / f"task-{task_id}.log"
+        return self.tasks_dir / f"task-{task_id}.log"
 
     async def log(self, task_id: int, line: str):
         timestamp = datetime.now().isoformat()

@@ -1,18 +1,25 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.adapters.sqlite_store import SQLiteStore
 from app.core.policies import append_follow_up_instructions
+from app.core.project_policy import ProjectPolicy, classify_main_workspace_request
 from app.models import TaskStatus, WorkspaceKind
 
 
 class TaskCommandService:
-    def __init__(self, store: SQLiteStore, workflow, event_sink, worker_pool):
+    def __init__(
+        self,
+        store: SQLiteStore,
+        workflow,
+        event_sink,
+        worker_pool,
+        policy: ProjectPolicy,
+    ):
         self.store = store
         self.workflow = workflow
         self.events = event_sink
         self.worker_pool = worker_pool
+        self.policy = policy
 
     async def create_task(
         self,
@@ -41,6 +48,7 @@ class TaskCommandService:
                 raise ValueError("Dependency task must belong to the same repository")
 
         workspace = None
+        auto_routed_from_main = False
         if workspace_id is not None:
             workspace = await self.store.get_workspace(db, workspace_id)
             if workspace is None:
@@ -61,6 +69,25 @@ class TaskCommandService:
         else:
             workspace = await self.store.ensure_main_workspace(db, repo)
 
+        if workspace.kind == WorkspaceKind.MAIN:
+            intent = classify_main_workspace_request(self.policy, title, description)
+            if intent == "feature":
+                if not self.policy.main_allow_feature_work:
+                    if not self.policy.auto_fork_feature_workspace_from_main:
+                        raise ValueError("Feature work is not allowed on the main workspace")
+                    workspace = await self.store.create_workspace(
+                        db,
+                        repo_id=repo_id,
+                        name=title.strip() or "Feature Workspace",
+                        kind=WorkspaceKind.FEATURE,
+                        base_branch=repo.default_branch,
+                    )
+                    auto_routed_from_main = True
+            elif intent == "hotfix" and not self.policy.main_allow_hotfix:
+                raise ValueError("Hotfix work is not allowed on the main workspace")
+            elif intent == "plan_review" and not self.policy.main_allow_plan_review:
+                raise ValueError("Planning and review work are not allowed on the main workspace")
+
         task = await self.store.create_task(
             db,
             repo_id=repo_id,
@@ -76,6 +103,11 @@ class TaskCommandService:
         task.workspace_name = workspace.name
         task.workspace_kind = workspace.kind
         task.workspace_task_count = await self.store.count_workspace_tasks(db, workspace.id)
+        if auto_routed_from_main:
+            await self.events.log(
+                task.id,
+                f"Protected main routed this task to feature workspace '{workspace.name}'.",
+            )
         await self.worker_pool.enqueue(task.id)
         return task
 
@@ -161,7 +193,6 @@ class TaskCommandService:
         self,
         db,
         task_id: int,
-        logs_dir: Path,
         delete_workspace_if_empty: bool = False,
     ):
         task = await self.store.get_task(db, task_id)
@@ -180,15 +211,12 @@ class TaskCommandService:
         workspace = None
         if task.workspace_id is not None:
             workspace = await self.store.get_workspace(db, task.workspace_id)
-        log_path = logs_dir / f"task-{task.id}.log"
 
         await self.workflow.codex.cancel(task.id)
 
         await self.store.delete_task_records(db, task.id)
         await db.delete(task)
         await db.commit()
-        if log_path.exists():
-            log_path.unlink(missing_ok=True)
         await self.events.broadcast_task_deleted(task_id)
 
         if (
