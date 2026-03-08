@@ -152,6 +152,20 @@ export function buildThreadOptions(payload, fallbackModel) {
   return options;
 }
 
+export function buildRunStreamOptions(runRecord) {
+  const options = {
+    signal: runRecord.abortController.signal,
+  };
+  if (
+    runRecord.outputSchema &&
+    typeof runRecord.outputSchema === "object" &&
+    !Array.isArray(runRecord.outputSchema)
+  ) {
+    options.outputSchema = runRecord.outputSchema;
+  }
+  return options;
+}
+
 function formatEvent(event) {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
@@ -161,10 +175,7 @@ async function runCodexRun(runRecord, payload, runtimeHome, fallbackModel) {
   const localCodexPath = await resolveLocalCodexPath();
   const codex = new Codex(buildCodexOptions(payload, runtimeHome, localCodexPath));
   const thread = codex.startThread(buildThreadOptions(payload, fallbackModel));
-  const streamed = await thread.runStreamed(runRecord.prompt, {
-    outputSchema: runRecord.outputSchema,
-    signal: runRecord.abortController.signal,
-  });
+  const streamed = await thread.runStreamed(runRecord.prompt, buildRunStreamOptions(runRecord));
   let finalText = "";
   for await (const event of streamed.events) {
     runRecord.events.push(event);
@@ -394,11 +405,7 @@ export async function startSidecar(argv = process.argv.slice(2)) {
 export { buildCodexOptions };
 
 async function resolveLocalCodexPath() {
-  const candidates = [
-    fileURLToPath(new URL("./node_modules/.bin/codex", import.meta.url)),
-    fileURLToPath(new URL("./node_modules/.bin/codex.cmd", import.meta.url)),
-    fileURLToPath(new URL("./node_modules/@openai/codex/bin/codex.js", import.meta.url)),
-  ];
+  const candidates = localCodexPathCandidates();
   for (const candidate of candidates) {
     try {
       await access(candidate);
@@ -408,6 +415,26 @@ async function resolveLocalCodexPath() {
     }
   }
   throw new Error("local @openai/codex runtime was not found");
+}
+
+export function localCodexPathCandidates() {
+  const windowsCandidates = [
+    fileURLToPath(
+      new URL(
+        "./node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/codex/codex.exe",
+        import.meta.url
+      )
+    ),
+    fileURLToPath(new URL("./node_modules/.bin/codex.cmd", import.meta.url)),
+    fileURLToPath(new URL("./node_modules/@openai/codex/bin/codex.js", import.meta.url)),
+    fileURLToPath(new URL("./node_modules/.bin/codex", import.meta.url)),
+  ];
+  const posixCandidates = [
+    fileURLToPath(new URL("./node_modules/.bin/codex", import.meta.url)),
+    fileURLToPath(new URL("./node_modules/@openai/codex/bin/codex.js", import.meta.url)),
+    fileURLToPath(new URL("./node_modules/.bin/codex.cmd", import.meta.url)),
+  ];
+  return process.platform === "win32" ? windowsCandidates : posixCandidates;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

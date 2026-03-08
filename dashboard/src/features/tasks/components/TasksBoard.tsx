@@ -135,11 +135,13 @@ function WorkspaceRow({
   workspace,
   tasks,
   now,
+  liveConnected,
   onSelectTask,
 }: {
   workspace: Workspace;
   tasks: TaskSummary[];
   now: number;
+  liveConnected: boolean;
   onSelectTask: (taskId: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -190,7 +192,12 @@ function WorkspaceRow({
               </div>
               <div className="flex-1 rounded-b-2xl border border-t-0 border-slate-200 bg-slate-50/50 p-2">
                 {task ? (
-                  <TaskCard task={task} now={now} onClick={onSelectTask} />
+                  <TaskCard
+                    task={task}
+                    now={now}
+                    onClick={onSelectTask}
+                    liveConnected={liveConnected}
+                  />
                 ) : (
                   <div className="flex h-full min-h-[104px] items-center justify-center rounded-2xl border border-dashed border-slate-200 px-3 text-xs text-slate-400">
                     No task
@@ -786,7 +793,7 @@ function TasksBoardContent() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
-  useWebSocket(undefined, (msg) => {
+  const { connected } = useWebSocket(undefined, (msg) => {
     if (msg.type === "task_state_changed" || msg.type === "task_deleted") {
       mutate((key: unknown) => Array.isArray(key) && (key[0] === "tasks" || key[0] === "workspaces"));
     }
@@ -877,7 +884,12 @@ function TasksBoardContent() {
                 ) : (
                   queuedTasks.map((task) => (
                     <div key={task.id} className="w-72 shrink-0">
-                      <TaskCard task={task} now={now} onClick={setSelectedTaskId} />
+                      <TaskCard
+                        task={task}
+                        now={now}
+                        onClick={setSelectedTaskId}
+                        liveConnected={connected}
+                      />
                     </div>
                   ))
                 )}
@@ -909,6 +921,7 @@ function TasksBoardContent() {
                             task={task}
                             now={now}
                             onClick={setSelectedTaskId}
+                            liveConnected={connected}
                           />
                         ))
                       )}
@@ -928,6 +941,7 @@ function TasksBoardContent() {
                 workspace={workspace}
                 tasks={tasksByWorkspace[workspace.id] ?? []}
                 now={now}
+                liveConnected={connected}
                 onSelectTask={setSelectedTaskId}
               />
             ))

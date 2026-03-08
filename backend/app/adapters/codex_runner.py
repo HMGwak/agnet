@@ -127,6 +127,16 @@ class CodexRunner:
                         elif status == "failed":
                             exit_code = 1
 
+            if (exit_code == 0 and not final_output) or (exit_code != 0 and not failure_message):
+                result_response = await client.get(f"/runs/{run_id}/events")
+                result_response.raise_for_status()
+                result_body = result_response.json()
+                result_text = str(result_body.get("result", "") or "")
+                if exit_code == 0 and result_text:
+                    final_output = result_text
+                elif exit_code != 0 and result_text:
+                    failure_message = result_text
+
             if task_id is not None:
                 async with self._lock:
                     self._task_runs.pop(task_id, None)

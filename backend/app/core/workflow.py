@@ -224,6 +224,13 @@ class SymphonyWorkflowEngine:
         if exit_code != 0:
             raise RuntimeError(f"Implementation failed: {output[-500:]}")
 
+        if not await self.git.has_working_tree_changes(workspace_path):
+            raise NeedsAttentionError(
+                "Implementation completed without creating any file changes in the workspace.\n\n"
+                "The executor returned success, but the worktree is unchanged. "
+                "No implementation is available for testing yet."
+            )
+
         await self._update_status(session, task, TaskStatus.TESTING)
         await self.events.log(
             task.id,

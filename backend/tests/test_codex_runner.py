@@ -170,6 +170,56 @@ async def test_run_codex_maps_sidecar_events(httpx_mock: HTTPXMock, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_codex_falls_back_to_sidecar_result_when_stream_has_only_terminal_state(
+    httpx_mock: HTTPXMock, tmp_path
+):
+    runner = CodexRunner(
+        base_url="http://127.0.0.1:8765",
+        model="gpt-5.4",
+        sandbox_mode="workspace-write",
+        approval_policy="never",
+        run_timeout_s=300,
+        prompt_library=make_prompts(),
+        policy=make_policy(),
+        project_config=make_project_config(tmp_path),
+    )
+    events = 'data: {"type":"state","id":"run-2","status":"failed"}'
+    httpx_mock.add_response(
+        method="POST",
+        url="http://127.0.0.1:8765/runs",
+        json={"runId": "run-2"},
+        status_code=200,
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url="http://127.0.0.1:8765/runs/run-2/events",
+        text=events,
+        status_code=200,
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url="http://127.0.0.1:8765/runs/run-2/events",
+        json={
+            "runId": "run-2",
+            "status": "failed",
+            "events": [],
+            "result": "outputSchema must be a plain JSON object",
+            "exitCode": 1,
+        },
+        status_code=200,
+    )
+
+    exit_code, output = await runner.run_codex(
+        "hello",
+        tmp_path,
+        task_id=13,
+    )
+
+    assert exit_code == 1
+    assert output == "outputSchema must be a plain JSON object"
+
+
+@pytest.mark.asyncio
 async def test_run_intake_returns_structured_payload(httpx_mock: HTTPXMock, tmp_path):
     runner = CodexRunner(
         base_url="http://127.0.0.1:8765",

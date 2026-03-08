@@ -9,9 +9,11 @@ import { fileURLToPath } from "node:url";
 import {
   buildAllowlistEnv,
   buildCodexOptions,
+  buildRunStreamOptions,
   buildThreadOptions,
   createSidecarServer,
   hasProjectAuth,
+  localCodexPathCandidates,
   parseArgs,
 } from "../server.mjs";
 
@@ -156,6 +158,30 @@ test("buildThreadOptions leaves reasoning effort unset unless provided", () => {
     "gpt-5.4"
   );
   assert.equal(explicitOptions.modelReasoningEffort, "high");
+});
+
+test("buildRunStreamOptions omits outputSchema when not provided", () => {
+  const withoutSchema = buildRunStreamOptions({
+    outputSchema: null,
+    abortController: new AbortController(),
+  });
+  assert.equal(withoutSchema.outputSchema, undefined);
+
+  const withSchema = buildRunStreamOptions({
+    outputSchema: { type: "object" },
+    abortController: new AbortController(),
+  });
+  assert.deepEqual(withSchema.outputSchema, { type: "object" });
+});
+
+test("localCodexPathCandidates prefers windows-safe entrypoints on win32", () => {
+  const candidates = localCodexPathCandidates();
+  if (process.platform === "win32") {
+    assert.match(candidates[0], /codex\.exe$/);
+    assert.match(candidates[1], /codex\.cmd$/);
+    return;
+  }
+  assert.match(candidates[0], /node_modules[\\/]\.bin[\\/]codex$/);
 });
 
 test("hasProjectAuth detects project-local auth cache", async () => {

@@ -48,6 +48,19 @@ function isTerminalStatus(status: TaskStatus): boolean {
   return ["DONE", "FAILED", "CANCELLED", "NEEDS_ATTENTION"].includes(status);
 }
 
+function isActiveStatus(status: TaskStatus): boolean {
+  return ["PREPARING_WORKSPACE", "PLANNING", "IMPLEMENTING", "TESTING", "MERGING"].includes(status);
+}
+
+function executionHeadline(status: TaskStatus): string {
+  if (status === "PREPARING_WORKSPACE") return "Preparing workspace";
+  if (status === "PLANNING") return "Planning in progress";
+  if (status === "IMPLEMENTING") return "Implementation in progress";
+  if (status === "TESTING") return "Testing in progress";
+  if (status === "MERGING") return "Merging in progress";
+  return "Running";
+}
+
 function formatSchedule(dateStr: string): string {
   return formatKSTDateTime(dateStr, {
     month: "short",
@@ -61,12 +74,15 @@ export function TaskCard({
   task,
   now,
   onClick,
+  liveConnected = false,
 }: {
   task: TaskSummary;
   now: number;
   onClick?: (taskId: number) => void;
+  liveConnected?: boolean;
 }) {
   const endTime = isTerminalStatus(task.status) ? parseTimestamp(task.updated_at) : now;
+  const showExecutionStatus = isActiveStatus(task.status);
 
   return (
     <button
@@ -94,6 +110,13 @@ export function TaskCard({
           <span>Started {formatSchedule(task.created_at)}</span>
           <span>Elapsed {formatElapsedTime(task.created_at, endTime)}</span>
         </div>
+        {showExecutionStatus && (
+          <div className="mt-2 rounded-md bg-sky-50 px-2 py-2 text-[11px] text-sky-900">
+            <div className="font-medium">{executionHeadline(task.status)}</div>
+            <div>{liveConnected ? "Receiving live output." : "Live updates disconnected."}</div>
+            <div>Live connection: {liveConnected ? "Connected" : "Disconnected"}</div>
+          </div>
+        )}
         {(task.scheduled_for || task.blocked_by_task_id) && (
           <div className="mt-2 space-y-1 text-[11px] text-gray-500">
             {task.scheduled_for && (

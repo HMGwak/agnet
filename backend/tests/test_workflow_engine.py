@@ -8,6 +8,9 @@ from app.models import Repo, Task, TaskStatus, Workspace, WorkspaceKind
 
 
 class FakeWorkspaceManager:
+    def __init__(self, *, has_changes: bool = True):
+        self.has_changes = has_changes
+
     async def create_worktree(
         self,
         repo_path: Path,
@@ -24,6 +27,9 @@ class FakeWorkspaceManager:
 
     async def cleanup_worktree(self, repo_path: Path, workspace_path: Path) -> None:
         return None
+
+    async def has_working_tree_changes(self, workspace_path: Path) -> bool:
+        return self.has_changes
 
     async def get_diff(self, workspace_path: Path, base_branch: str = "main") -> str:
         return "diff"
@@ -243,3 +249,38 @@ async def test_workflow_engine_moves_to_needs_attention_when_critique_does_not_c
 
     assert task.status == TaskStatus.NEEDS_ATTENTION
     assert "Plan critique did not converge" in task.error_message
+
+
+@pytest.mark.asyncio
+async def test_workflow_engine_moves_to_needs_attention_when_implementation_makes_no_changes():
+    task = Task(
+        id=1,
+        repo_id=2,
+        workspace_id=5,
+        title="Implement feature",
+        description="",
+        status=TaskStatus.PENDING,
+    )
+    repo = Repo(id=2, name="demo", path="D:/repo", default_branch="main")
+    workspace = Workspace(
+        id=5,
+        repo_id=2,
+        name="Main",
+        kind=WorkspaceKind.MAIN,
+        base_branch="main",
+        branch_name="workspace/main/2",
+        workspace_path=None,
+        is_active=True,
+    )
+    events = FakeEventSink()
+    engine = SymphonyWorkflowEngine(
+        FakeWorkspaceManager(has_changes=False),
+        FakeAgentRunner(),
+        events,
+        FakeSessionFactory(task, repo, workspace),
+    )
+
+    await engine.process_task(1)
+
+    assert task.status == TaskStatus.NEEDS_ATTENTION
+    assert "Implementation completed without creating any file changes" in task.error_message

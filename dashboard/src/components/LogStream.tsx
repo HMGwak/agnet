@@ -3,9 +3,30 @@
 import { useEffect, useRef, useState } from "react";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { getTaskLogs } from "@/lib/api";
+import { parseBackendTimestamp } from "@/lib/time";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
-export function LogStream({ taskId }: { taskId: number }) {
+function extractLatestTimestamp(lines: string[]): number | null {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const match = lines[index]?.match(/^\[([^\]]+)\]/);
+    if (!match) {
+      continue;
+    }
+    const parsed = parseBackendTimestamp(match[1]);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+export function LogStream({
+  taskId,
+  onActivity,
+}: {
+  taskId: number;
+  onActivity?: (timestampMs: number) => void;
+}) {
   const [lines, setLines] = useState<string[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -14,13 +35,22 @@ export function LogStream({ taskId }: { taskId: number }) {
   useEffect(() => {
     getTaskLogs(taskId).then((text) => {
       if (text) {
-        setLines(text.split("\n").filter(Boolean));
+        const nextLines = text.split("\n").filter(Boolean);
+        setLines(nextLines);
+        const latestTimestamp = extractLatestTimestamp(nextLines);
+        if (latestTimestamp !== null) {
+          onActivity?.(latestTimestamp);
+        }
       }
     }).catch(() => {});
-  }, [taskId]);
+  }, [taskId, onActivity]);
 
   useWebSocket(taskId, (msg) => {
     if (msg.type === "task_log_line") {
+      const parsed = parseBackendTimestamp(msg.data.timestamp ?? "");
+      if (!Number.isNaN(parsed)) {
+        onActivity?.(parsed);
+      }
       setLines((prev) => [...prev, msg.data.line]);
     }
   });
