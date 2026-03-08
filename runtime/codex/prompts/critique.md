@@ -7,9 +7,11 @@ Do not modify files.
 
 Return plain text only in this exact format:
 VERDICT: APPROVED or REVISE
-SUMMARY: one concise sentence
+SUMMARY: <한 줄 한국어 요약>
 PLAN:
-<the full final plan text, revised if needed>
+<수정이 반영된 전체 최종 계획서. 사용자에게 보이는 모든 문장은 한국어로 작성>
+
+Keep `VERDICT:`, `SUMMARY:`, `PLAN:` and verdict values in English exactly as written above.
 
 Repository: $repo_name
 Workspace: $workspace_name

@@ -33,7 +33,7 @@ class TaskIntakeService:
     async def analyze(self, db, body: TaskIntakeRequest) -> TaskIntakeResponse:
         repo = await self.store.get_repo(db, body.repo_id)
         if repo is None:
-            raise LookupError("Repo not found")
+            raise LookupError("저장소를 찾을 수 없습니다")
 
         repo_path = Path(repo.path)
         workspaces = await self.store.list_workspaces(db, repo.id)
@@ -181,6 +181,9 @@ class TaskIntakeService:
             "Read the repository-scoped context and convert the user's request into a task draft.\n"
             "Return JSON only. Do not include markdown fences or any extra text.\n"
             "If key information is missing, ask concise follow-up questions in `questions`.\n"
+            "Any user-facing text fields that you generate must be written in Korean.\n"
+            "This includes `draft.title`, `draft.description`, every entry in `questions`, and every entry in `notes`.\n"
+            "Keep JSON keys, enum values, ids, and null handling exactly as specified.\n"
             "Only use the provided repository context. Do not invent workspace ids or task ids.\n"
             "The repository profile below comes from the fixed Repo Profile section in AGENTS.md.\n"
             "Use it as the canonical environment context for language, package manager, commands, and deployment risk.\n"
@@ -250,12 +253,12 @@ class TaskIntakeService:
         try:
             return TaskIntakeResponse.model_validate(payload)
         except ValidationError as exc:
-            raise ValueError(f"Invalid intake response: {exc}") from exc
+            raise ValueError(f"태스크 인테이크 응답 형식이 올바르지 않습니다: {exc}") from exc
 
     def _extract_json(self, output: str) -> dict:
         cleaned = output.strip()
         if not cleaned:
-            raise ValueError("Task intake returned an empty response")
+            raise ValueError("태스크 인테이크 응답이 비어 있습니다")
 
         candidates = [cleaned]
         if "```" in cleaned:
@@ -280,7 +283,7 @@ class TaskIntakeService:
             if isinstance(payload, dict):
                 return payload
 
-        raise ValueError("Task intake did not return valid JSON")
+        raise ValueError("태스크 인테이크가 유효한 JSON을 반환하지 않았습니다")
 
     def _fallback_response(
         self,
@@ -352,30 +355,30 @@ class TaskIntakeService:
             draft.description = self._build_description(draft.title or title, user_request or text)
 
         questions: list[str] = []
-        notes = ["Draft generated from the request because the AI response was not structured."]
+        notes = ["AI 응답이 구조화되지 않아 요청을 바탕으로 초안을 생성했습니다."]
 
         if draft.workspace_mode == "unspecified":
             if prefers_existing and feature_workspaces:
                 draft.workspace_mode = "existing"
                 draft.workspace_id = feature_workspaces[0].id
-                notes.append(f"Continuing in workspace '{feature_workspaces[0].name}'.")
+                notes.append(f"'{feature_workspaces[0].name}' 워크스페이스에서 이어서 진행하도록 정했습니다.")
             elif prefers_existing and main_workspace:
                 draft.workspace_mode = "existing"
                 draft.workspace_id = main_workspace.id
-                notes.append("Continuing in the main workspace.")
+                notes.append("메인 워크스페이스에서 이어서 진행하도록 정했습니다.")
             elif prefers_new:
                 draft.workspace_mode = "new"
                 draft.workspace_id = None
                 draft.new_workspace_name = self._suggest_workspace_name(draft.title or user_request)
-                notes.append(f"Suggested a new workspace '{draft.new_workspace_name}'.")
+                notes.append(f"새 워크스페이스 '{draft.new_workspace_name}' 를 제안했습니다.")
             elif len(feature_workspaces) == 1:
                 draft.workspace_mode = "existing"
                 draft.workspace_id = feature_workspaces[0].id
                 questions.append(
-                    f"Should this continue in '{feature_workspaces[0].name}' or use a new workspace?"
+                    f"'{feature_workspaces[0].name}' 에서 이어서 진행할까요, 아니면 새 워크스페이스를 만들까요?"
                 )
             else:
-                questions.append("Should this use an existing workspace or create a new one?")
+                questions.append("기존 워크스페이스를 사용할까요, 아니면 새 워크스페이스를 만들까요?")
 
         if draft.workspace_mode == "existing" and draft.workspace_id is None:
             if len(feature_workspaces) == 1:
@@ -383,7 +386,7 @@ class TaskIntakeService:
             elif main_workspace is not None and not feature_workspaces:
                 draft.workspace_id = main_workspace.id
             else:
-                questions.append("Which existing workspace should this task use?")
+                questions.append("이 작업에 사용할 기존 워크스페이스를 선택해 주세요.")
 
         if draft.workspace_mode == "new" and not draft.new_workspace_name:
             draft.new_workspace_name = self._suggest_workspace_name(draft.title or user_request)
@@ -392,7 +395,7 @@ class TaskIntakeService:
             lowered, "after task", "after", "다음", "이후", "끝나고"
         ):
             draft.blocked_by_task_id = recent_task.id
-            notes.append(f"Linked dependency to recent task #{recent_task.id}.")
+            notes.append(f"최근 작업 #{recent_task.id} 를 선행 작업으로 연결했습니다.")
 
         needs_confirmation = len(questions) == 0
         return TaskIntakeResponse(
@@ -423,8 +426,8 @@ class TaskIntakeService:
             questions=build_repo_profile_questions(missing_fields),
             needs_confirmation=False,
             notes=[
-                "This repository is missing required Repo Profile fields in AGENTS.md.",
-                "Fill the highlighted repo profile fields and update the draft again.",
+                "이 저장소의 AGENTS.md 에 필수 Repo Profile 항목이 비어 있습니다.",
+                "표시된 Repo Profile 항목을 채운 뒤 초안을 다시 업데이트해 주세요.",
             ],
             repo_profile=profile,
             repo_profile_missing_fields=missing_fields,
@@ -471,20 +474,14 @@ class TaskIntakeService:
         slug = slugify(text)
         if not slug:
             slug = "new-task"
-        return f"Task {slug}"
+        return f"작업 {slug}"
 
     @staticmethod
     def _build_description(title: str, request: str) -> str:
         cleaned_request = re.sub(r"\s+", " ", request).strip()
-        cleaned_title = re.sub(r"\s+", " ", title).strip() or "Requested task"
-        if re.search(r"[가-힣]", cleaned_request or cleaned_title):
-            return (
-                f"{cleaned_request or cleaned_title}.\n\n"
-                f"이 작업은 '{cleaned_title}' 요청을 실제로 사용할 수 있는 결과물로 구현하는 것을 목표로 한다.\n"
-                "필요한 코드, 자산, 연결 지점을 함께 정리하고 기존 흐름과 자연스럽게 통합한다."
-            )
+        cleaned_title = re.sub(r"\s+", " ", title).strip() or "요청한 작업"
         return (
             f"{cleaned_request or cleaned_title}.\n\n"
-            f"This task should turn '{cleaned_title}' into a usable implementation.\n"
-            "Update the necessary code, assets, and integration points so the result fits the existing workflow."
+            f"이 작업은 '{cleaned_title}' 요청을 실제로 사용할 수 있는 결과물로 구현하는 것을 목표로 한다.\n"
+            "필요한 코드, 자산, 연결 지점을 함께 정리하고 기존 흐름과 자연스럽게 통합한다."
         )

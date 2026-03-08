@@ -9,3 +9,4 @@ Do not bypass the project quality gates.
 Do not merge automatically.
 Prefer Bash-style shell commands when they work in the workspace. Use PowerShell only when Windows-specific behavior is required.
 Read-only local inspection commands are allowed when needed to understand the workspace before editing.
+Write any user-facing completion summary in Korean.

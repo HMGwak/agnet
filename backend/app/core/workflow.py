@@ -51,7 +51,7 @@ class SymphonyWorkflowEngine:
         task.status = new_status
         await session.commit()
         await self.events.broadcast_state_change(task.id, old.value, new_status.value)
-        await self.events.log(task.id, f"Status: {old.value} -> {new_status.value}")
+        await self.events.log(task.id, f"상태: {old.value} -> {new_status.value}")
 
     async def process_task(self, task_id: int):
         async with self.session_factory() as session:
@@ -66,7 +66,7 @@ class SymphonyWorkflowEngine:
                 if task.status == TaskStatus.PENDING:
                     await self._update_status(session, task, TaskStatus.PREPARING_WORKSPACE)
                     if workspace is None:
-                        raise RuntimeError("Workspace not found for task")
+                        raise RuntimeError("작업에 연결된 워크스페이스를 찾을 수 없습니다")
 
                     workspace_path = Path(workspace.workspace_path) if workspace.workspace_path else None
                     if workspace_path is None or not workspace_path.exists():
@@ -118,7 +118,7 @@ class SymphonyWorkflowEngine:
                             workspace.base_branch if workspace else repo.default_branch,
                         )
                         await session.commit()
-                    await self.events.log(task.id, "Merging to main...")
+                    await self.events.log(task.id, "메인 브랜치로 병합 중...")
                     success, msg = await self.git.merge_to_main(
                         Path(repo.path),
                         workspace.branch_name if workspace else task.branch_name,
@@ -126,16 +126,16 @@ class SymphonyWorkflowEngine:
                     )
                     self._record_run(session, task.id, "merge", 0 if success else 1)
                     if not success:
-                        raise RuntimeError(f"Merge failed: {msg}")
+                        raise RuntimeError(f"병합 실패: {msg}")
                     await self._update_status(session, task, TaskStatus.DONE)
 
             except NeedsAttentionError as exc:
-                await self.events.log(task.id, f"NEEDS ATTENTION: {exc}")
+                await self.events.log(task.id, f"조치 필요: {exc}")
                 task.error_message = str(exc)
                 await session.commit()
                 await self._update_status(session, task, TaskStatus.NEEDS_ATTENTION)
             except Exception as exc:
-                await self.events.log(task.id, f"ERROR: {exc}")
+                await self.events.log(task.id, f"오류: {exc}")
                 task.error_message = str(exc)
                 if task.retry_count < 1:
                     task.retry_count += 1
@@ -148,7 +148,7 @@ class SymphonyWorkflowEngine:
 
     async def _run_planning_stage(self, session, task, repo, workspace, task_input: str, log_cb):
         workspace_path = Path(task.workspace_path)
-        await self.events.log(task.id, "Stage: plan")
+        await self.events.log(task.id, "단계: 계획")
         exit_code, output = await self.codex.generate_plan(
             workspace_path,
             task_input,
@@ -162,11 +162,11 @@ class SymphonyWorkflowEngine:
         )
         self._record_run(session, task.id, "plan", exit_code)
         if exit_code != 0:
-            raise RuntimeError(f"Plan generation failed: {output[-500:]}")
+            raise RuntimeError(f"계획 생성 실패: {output[-500:]}")
 
         plan_text = output.strip()
         if not plan_text:
-            raise RuntimeError("Plan generation returned an empty plan")
+            raise RuntimeError("계획 생성 결과가 비어 있습니다")
 
         critique_rounds = max(1, self.codex.policy.critique_max_rounds)
         if not self.codex.policy.critique_required:
@@ -176,7 +176,7 @@ class SymphonyWorkflowEngine:
         for round_index in range(1, critique_rounds + 1):
             await self.events.log(
                 task.id,
-                f"Stage: critique ({round_index}/{critique_rounds})",
+                f"단계: 계획 검토 ({round_index}/{critique_rounds})",
             )
             exit_code, critique_output = await self.codex.critique_plan(
                 workspace_path,
@@ -192,23 +192,26 @@ class SymphonyWorkflowEngine:
             )
             self._record_run(session, task.id, "critique", exit_code)
             if exit_code != 0:
-                raise RuntimeError(f"Plan critique failed: {critique_output[-500:]}")
+                raise RuntimeError(f"계획 검토 실패: {critique_output[-500:]}")
 
             critique = self._parse_plan_critique(critique_output)
             last_critique = critique_output
             plan_text = critique["plan"]
-            await self.events.log(task.id, f"Critic verdict: {critique['verdict']}. {critique['summary']}")
+            await self.events.log(
+                task.id,
+                f"계획 검토 결과: {critique['verdict']}. {critique['summary']}",
+            )
             if critique["verdict"] == "APPROVED":
                 return plan_text
 
         raise NeedsAttentionError(
-            "Plan critique did not converge within the configured rounds.\n\n"
+            "설정된 반복 횟수 안에 계획 검토가 수렴하지 않았습니다.\n\n"
             f"{last_critique.strip()}"
         )
 
     async def _run_implementation_pipeline(self, session, task, repo, workspace, task_input: str, log_cb):
         workspace_path = Path(task.workspace_path)
-        await self.events.log(task.id, "Stage: implement")
+        await self.events.log(task.id, "단계: 구현")
         exit_code, output = await self.codex.implement_plan(
             workspace_path,
             task.plan_text or "",
@@ -223,20 +226,20 @@ class SymphonyWorkflowEngine:
         )
         self._record_run(session, task.id, "implement", exit_code)
         if exit_code != 0:
-            raise RuntimeError(f"Implementation failed: {output[-500:]}")
+            raise RuntimeError(f"구현 실패: {output[-500:]}")
 
         if not await self.git.has_working_tree_changes(workspace_path):
             await self.events.log(
                 task.id,
-                "Warning: Implementation completed without creating any file changes in the workspace.\n"
-                "The executor returned success, but the worktree is unchanged. "
-                "The tester will evaluate if the workspace state fulfills the requirements."
+                "경고: 워크스페이스에 파일 변경을 만들지 않은 상태로 구현이 완료되었습니다.\n"
+                "실행기는 성공을 반환했지만 작업 트리는 바뀌지 않았습니다. "
+                "테스터가 현재 워크스페이스 상태가 요구사항을 충족하는지 확인합니다."
             )
 
         await self._update_status(session, task, TaskStatus.TESTING)
         await self.events.log(
             task.id,
-            f"Stage: test (max repair loops {self.codex.policy.test_fix_loops})",
+            f"단계: 테스트 (최대 수정 반복 {self.codex.policy.test_fix_loops}회)",
         )
         exit_code, test_output = await self.codex.run_tests(
             workspace_path,
@@ -252,13 +255,16 @@ class SymphonyWorkflowEngine:
         )
         self._record_run(session, task.id, "test", exit_code)
         if exit_code != 0:
-            raise RuntimeError(f"Testing failed: {test_output[-500:]}")
+            raise RuntimeError(f"테스트 실패: {test_output[-500:]}")
 
         test_result = self._parse_stage_verdict(test_output, allowed={"PASS", "NEEDS_ATTENTION"})
-        await self.events.log(task.id, f"Tester verdict: {test_result['verdict']}. {test_result['summary']}")
+        await self.events.log(
+            task.id,
+            f"테스트 결과: {test_result['verdict']}. {test_result['summary']}",
+        )
         if test_result["verdict"] != "PASS":
             raise NeedsAttentionError(
-                "Testing could not reach a passing state within the configured repair loop.\n\n"
+                "설정된 수정 반복 횟수 안에 테스트를 통과하지 못했습니다.\n\n"
                 f"{test_output.strip()}"
             )
 
@@ -268,8 +274,8 @@ class SymphonyWorkflowEngine:
         ):
             await self.events.log(
                 task.id,
-                "Notice: Implementation completed, but no mergeable workspace changes remained after testing. "
-                "This may indicate the task required no code changes or changes were filtered."
+                "안내: 구현은 완료되었지만 테스트 후 병합 가능한 워크스페이스 변경이 남지 않았습니다. "
+                "이 작업에 코드 변경이 필요 없었거나 변경이 필터링되었을 수 있습니다."
             )
 
         task.diff_text = await self.git.get_diff(
@@ -279,7 +285,7 @@ class SymphonyWorkflowEngine:
         await session.commit()
 
         if self.codex.policy.review_required:
-            await self.events.log(task.id, "Stage: review")
+            await self.events.log(task.id, "단계: 리뷰")
             exit_code, review_output = await self.codex.review_result(
                 workspace_path,
                 task.plan_text or "",
@@ -296,7 +302,7 @@ class SymphonyWorkflowEngine:
             )
             self._record_run(session, task.id, "review", exit_code)
             if exit_code != 0:
-                raise RuntimeError(f"Review failed: {review_output[-500:]}")
+                raise RuntimeError(f"리뷰 실패: {review_output[-500:]}")
 
             review_result = self._parse_stage_verdict(
                 review_output,
@@ -304,11 +310,11 @@ class SymphonyWorkflowEngine:
             )
             await self.events.log(
                 task.id,
-                f"Reviewer verdict: {review_result['verdict']}. {review_result['summary']}",
+                f"리뷰 결과: {review_result['verdict']}. {review_result['summary']}",
             )
             if review_result["verdict"] != "PASS":
                 raise NeedsAttentionError(
-                    "Reviewer blocked merge readiness.\n\n"
+                    "리뷰어가 병합 준비를 차단했습니다.\n\n"
                     f"{review_output.strip()}"
                 )
 
@@ -319,10 +325,10 @@ class SymphonyWorkflowEngine:
         parsed = self._parse_stage_verdict(output, allowed={"APPROVED", "REVISE"})
         plan_match = re.search(r"^PLAN:\s*(.*)$", output, re.MULTILINE | re.DOTALL)
         if not plan_match:
-            raise RuntimeError("Plan critique output is missing a PLAN section")
+            raise RuntimeError("계획 검토 출력에 PLAN 섹션이 없습니다")
         plan_text = plan_match.group(1).strip()
         if not plan_text:
-            raise RuntimeError("Plan critique output returned an empty PLAN section")
+            raise RuntimeError("계획 검토 출력의 PLAN 섹션이 비어 있습니다")
         parsed["plan"] = plan_text
         return parsed
 
@@ -330,9 +336,9 @@ class SymphonyWorkflowEngine:
         verdict_match = re.search(r"^VERDICT:\s*(.+)$", output, re.MULTILINE)
         summary_match = re.search(r"^SUMMARY:\s*(.+)$", output, re.MULTILINE)
         if not verdict_match:
-            raise RuntimeError("Stage output is missing VERDICT")
+            raise RuntimeError("단계 출력에 VERDICT가 없습니다")
         verdict = verdict_match.group(1).strip().upper()
         if verdict not in allowed:
-            raise RuntimeError(f"Unexpected verdict '{verdict}'")
+            raise RuntimeError(f"예상하지 못한 verdict 값 '{verdict}'입니다")
         summary = summary_match.group(1).strip() if summary_match else ""
         return {"verdict": verdict, "summary": summary}

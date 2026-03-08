@@ -12,11 +12,11 @@ PROFILE_END_MARKER = "<!-- REPO_PROFILE_END -->"
 PROFILE_HEADING = "## Repo Profile"
 
 REPO_PROFILE_FIELD_LABELS = {
-    "language": "primary language(s)",
-    "package_manager": "runtime/package manager",
-    "dev_commands": "dev commands",
-    "test_commands": "test commands",
-    "deploy_considerations": "deploy considerations",
+    "language": "주 사용 언어",
+    "package_manager": "런타임/패키지 매니저",
+    "dev_commands": "개발 명령어",
+    "test_commands": "테스트 명령어",
+    "deploy_considerations": "배포 고려 사항",
 }
 
 
@@ -96,13 +96,13 @@ def missing_repo_profile_fields(profile: RepoProfileDraft | None) -> list[str]:
 
 def build_repo_profile_questions(missing_fields: list[str]) -> list[str]:
     questions = [
-        f"Fill in the repo profile field for {REPO_PROFILE_FIELD_LABELS[field]}."
+        f"Repo Profile의 '{REPO_PROFILE_FIELD_LABELS[field]}' 항목을 채워 주세요."
         for field in missing_fields
         if field in REPO_PROFILE_FIELD_LABELS
     ]
     if questions:
         questions[0] = (
-            "This repository needs its AGENTS.md repo profile before task drafting can proceed. "
+            "이 저장소는 작업 초안을 만들기 전에 AGENTS.md 의 Repo Profile을 먼저 채워야 합니다. "
             + questions[0]
         )
     return questions

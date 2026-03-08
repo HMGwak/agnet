@@ -261,7 +261,7 @@ async def test_workflow_engine_moves_to_needs_attention_when_critique_does_not_c
     await engine.process_task(1)
 
     assert task.status == TaskStatus.NEEDS_ATTENTION
-    assert "Plan critique did not converge" in task.error_message
+    assert "계획 검토가 수렴하지 않았습니다" in task.error_message
 
 
 @pytest.mark.asyncio
@@ -299,5 +299,5 @@ async def test_workflow_engine_proceeds_to_testing_when_implementation_makes_no_
     await engine.process_task(1)
 
     assert task.status == TaskStatus.AWAIT_MERGE_APPROVAL
-    assert any("Implementation completed without creating any file changes" in log for log in events.logs)
-    assert any("no mergeable workspace changes remained" in log for log in events.logs)
+    assert any("파일 변경을 만들지 않은 상태로 구현이 완료" in log for log in events.logs)
+    assert any("병합 가능한 워크스페이스 변경이 남지 않았습니다" in log for log in events.logs)

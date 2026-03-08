@@ -7,7 +7,9 @@ Make the necessary code changes in the current repository checkout and keep beha
 
 Return plain text only with:
 SUMMARY:
-<short change summary>
+<짧은 한국어 변경 요약>
+
+Keep `SUMMARY:` exactly as written above, but write the summary content in Korean.
 
 Repository: $repo_name
 Workspace: $workspace_name

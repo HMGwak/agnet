@@ -141,6 +141,7 @@ async def test_analyze_uses_repo_scoped_context(tmp_path):
     assert "Fix score rendering" in prompt
     assert "기존 점수 작업 이어서 수정해줘." in prompt
     assert "main workspace is protected" in prompt
+    assert "must be written in Korean" in prompt
     assert '"package_manager": "uv"' in prompt
     assert response.repo_profile is not None
     assert response.repo_profile.language == "Python"
@@ -177,7 +178,7 @@ def test_parse_response_accepts_fenced_json():
 def test_parse_response_rejects_invalid_json():
     service = TaskIntakeService(FakeStore(), FakeCodex({}), make_policy())
 
-    with pytest.raises(ValueError, match="valid JSON"):
+    with pytest.raises(ValueError, match="유효한 JSON"):
         service._parse_response("not json")
 
 
@@ -243,7 +244,7 @@ async def test_analyze_falls_back_when_codex_output_is_not_json(tmp_path):
     assert response.draft.new_workspace_name == "테트리스 게임을 구현해줘"
     assert "실제로 사용할 수 있는 결과물" in response.draft.description
     assert response.needs_confirmation is True
-    assert "Draft generated from the request" in response.notes[0]
+    assert "요청을 바탕으로 초안을 생성했습니다" in response.notes[0]
 
 
 @pytest.mark.asyncio
@@ -281,6 +282,8 @@ async def test_analyze_requests_repo_profile_when_agents_file_is_missing(tmp_pat
     ]
     assert response.needs_confirmation is False
     assert "AGENTS.md" in response.notes[0]
+    assert "Repo Profile" in response.notes[0]
+    assert response.questions[0].startswith("이 저장소는 작업 초안을 만들기 전에")
 
 
 @pytest.mark.asyncio

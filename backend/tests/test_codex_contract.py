@@ -262,3 +262,12 @@ def test_repo_manifest_matches_checked_in_contract():
     spec = load_contract(repo_root / CONTRACT_DIR / MANIFEST_FILE_NAME)
 
     assert verify_contract(spec, spec.root_dir) == []
+
+
+def test_checked_in_plan_prompt_requires_korean_user_facing_output():
+    repo_root = Path(__file__).resolve().parents[2]
+    prompt_path = repo_root / PROMPTS_DIR / "plan.md"
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+
+    assert "Write all user-facing content in Korean." in prompt_text
+    assert "1. 요구사항 요약" in prompt_text

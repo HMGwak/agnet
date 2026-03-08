@@ -7,9 +7,11 @@ Assess whether the implemented result is ready for human merge approval.
 
 Return plain text only in this exact format:
 VERDICT: PASS or NEEDS_ATTENTION
-SUMMARY: one concise sentence
+SUMMARY: <한 줄 한국어 요약>
 DETAILS:
-<scope notes, remaining risks, confidence, and whether the merge should wait for follow-up work>
+<범위 메모, 남은 위험, 자신감, 후속 작업 전까지 병합을 보류해야 하는지 한국어로 설명>
+
+Keep `VERDICT:`, `SUMMARY:`, `DETAILS:` and verdict values in English exactly as written above.
 
 Repository: $repo_name
 Workspace: $workspace_name
