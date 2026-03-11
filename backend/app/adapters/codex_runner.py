@@ -251,6 +251,20 @@ class CodexRunner:
         )
         return await self.run_codex(prompt, cwd=workspace_path, phase="plan", **kw)
 
+    async def explore_repo(
+        self,
+        workspace_path: Path,
+        task_description: str,
+        **kw,
+    ) -> tuple[int, str]:
+        kw.setdefault("agent_name", "explorer")
+        prompt = self.prompts.render(
+            "explore",
+            task_input=task_description,
+            **self._prompt_context(workspace_path, **kw),
+        )
+        return await self.run_codex(prompt, cwd=workspace_path, phase="explore", **kw)
+
     async def critique_plan(
         self,
         workspace_path: Path,
@@ -319,3 +333,41 @@ class CodexRunner:
             **self._prompt_context(workspace_path, **kw),
         )
         return await self.run_codex(prompt, cwd=workspace_path, phase="review", **kw)
+
+    async def orchestrate_next_action(
+        self,
+        workspace_path: Path,
+        **kw,
+    ) -> tuple[int, str]:
+        kw.setdefault("agent_name", "orchestrator")
+        prompt = self.prompts.render(
+            "orchestrate",
+            **self._prompt_context(workspace_path, **kw),
+        )
+        return await self.run_codex(prompt, cwd=workspace_path, phase="orchestrate", **kw)
+
+    async def generate_recovery_plan(
+        self,
+        workspace_path: Path,
+        task_description: str,
+        **kw,
+    ) -> tuple[int, str]:
+        kw.setdefault("agent_name", "recovery_planner")
+        prompt = self.prompts.render(
+            "recover",
+            task_input=task_description,
+            **self._prompt_context(workspace_path, **kw),
+        )
+        return await self.run_codex(prompt, cwd=workspace_path, phase="recover", **kw)
+
+    async def verify_completion(
+        self,
+        workspace_path: Path,
+        **kw,
+    ) -> tuple[int, str]:
+        kw.setdefault("agent_name", "verifier")
+        prompt = self.prompts.render(
+            "verify",
+            **self._prompt_context(workspace_path, **kw),
+        )
+        return await self.run_codex(prompt, cwd=workspace_path, phase="verify", **kw)

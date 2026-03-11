@@ -13,7 +13,17 @@ class PromptLibraryError(RuntimeError):
 class PromptLibrary:
     templates: dict[str, Template]
 
-    REQUIRED_TEMPLATES = ("plan", "critique", "implement", "test", "review")
+    REQUIRED_TEMPLATES = (
+        "explore",
+        "plan",
+        "critique",
+        "implement",
+        "test",
+        "review",
+        "orchestrate",
+        "recover",
+        "verify",
+    )
 
     @classmethod
     def load_from_directory(cls, directory: Path) -> "PromptLibrary":

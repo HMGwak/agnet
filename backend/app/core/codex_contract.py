@@ -13,8 +13,29 @@ RULES_RELATIVE_PATH = Path("rules") / "project.rules"
 AGENTS_DIR_RELATIVE_PATH = Path("agents")
 INSTRUCTIONS_DIR_RELATIVE_PATH = Path("instructions")
 PROMPTS_DIR_RELATIVE_PATH = Path("..") / "prompts"
-REQUIRED_AGENTS = ("intake", "planner", "critic", "executor", "tester", "reviewer")
-REQUIRED_PROMPTS = ("plan", "critique", "implement", "test", "review")
+REQUIRED_AGENTS = (
+    "intake",
+    "orchestrator",
+    "explorer",
+    "planner",
+    "critic",
+    "executor",
+    "tester",
+    "reviewer",
+    "recovery_planner",
+    "verifier",
+)
+REQUIRED_PROMPTS = (
+    "explore",
+    "plan",
+    "critique",
+    "implement",
+    "test",
+    "review",
+    "orchestrate",
+    "recover",
+    "verify",
+)
 MARKDOWN_HEADER = "<!-- Generated from codex-contract.toml. Do not edit directly. -->"
 TEXT_HEADER = "# Generated from codex-contract.toml. Do not edit directly."
 
@@ -85,12 +106,15 @@ def load_contract(manifest_path: Path) -> ContractSpec:
         agent_raw = _require_table(agents_raw, agent_name, f"agents.{agent_name}")
         _reject_unknown_keys(
             agent_raw,
-            {"description", "model_reasoning_effort", "multi_agent"},
+            {"description", "model", "model_reasoning_effort", "multi_agent"},
             f"agents.{agent_name}",
         )
         agents[agent_name] = {
             "description": _require_string(
                 agent_raw, "description", f"agents.{agent_name}"
+            ),
+            "model": _require_string(
+                agent_raw, "model", f"agents.{agent_name}"
             ),
             "model_reasoning_effort": _require_string(
                 agent_raw, "model_reasoning_effort", f"agents.{agent_name}"
@@ -320,7 +344,7 @@ def _render_agent_config(spec: ContractSpec, agent_name: str) -> str:
     lines = [
         TEXT_HEADER,
         "",
-        f'model = {_toml_string(project["model"])}',
+        f'model = {_toml_string(agent["model"])}',
         f'approval_policy = {_toml_string(project["approval_policy"])}',
         f'sandbox_mode = {_toml_string(project["sandbox_mode"])}',
         f'model_reasoning_effort = {_toml_string(agent["model_reasoning_effort"])}',

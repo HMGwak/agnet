@@ -35,6 +35,12 @@ class WorkspaceManager(Protocol):
 class AgentRunner(Protocol):
     def format_task_input(self, task_title: str, task_description: str) -> str: ...
     async def cancel(self, task_id: int) -> None: ...
+    async def explore_repo(
+        self,
+        workspace_path: Path,
+        task_description: str,
+        **kw,
+    ) -> tuple[int, str]: ...
     async def generate_plan(self, workspace_path: Path, task_description: str, **kw) -> tuple[int, str]: ...
     async def critique_plan(
         self,
@@ -58,6 +64,22 @@ class AgentRunner(Protocol):
         task_description: str,
         test_output: str,
         diff_text: str,
+        **kw,
+    ) -> tuple[int, str]: ...
+    async def orchestrate_next_action(
+        self,
+        workspace_path: Path,
+        **kw,
+    ) -> tuple[int, str]: ...
+    async def generate_recovery_plan(
+        self,
+        workspace_path: Path,
+        task_description: str,
+        **kw,
+    ) -> tuple[int, str]: ...
+    async def verify_completion(
+        self,
+        workspace_path: Path,
         **kw,
     ) -> tuple[int, str]: ...
 

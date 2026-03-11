@@ -1,6 +1,6 @@
 # Generated from codex-contract.toml. Do not edit directly.
 
-model = "gpt-5.4"
+model = "gpt-5-codex"
 approval_policy = "never"
 sandbox_mode = "workspace-write"
 model_reasoning_effort = "medium"

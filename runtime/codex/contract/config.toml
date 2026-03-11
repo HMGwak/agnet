@@ -24,6 +24,14 @@ include_only = [
 description = "Project-locked intake agent for task drafting"
 config_file = "./agents/intake.toml"
 
+[agents.orchestrator]
+description = "Project-locked orchestrator that routes work on behalf of the user"
+config_file = "./agents/orchestrator.toml"
+
+[agents.explorer]
+description = "Project-locked read-only code explorer for fast discovery"
+config_file = "./agents/explorer.toml"
+
 [agents.planner]
 description = "Project-locked planner for full implementation plans"
 config_file = "./agents/planner.toml"
@@ -43,3 +51,11 @@ config_file = "./agents/tester.toml"
 [agents.reviewer]
 description = "Project-locked reviewer for merge readiness"
 config_file = "./agents/reviewer.toml"
+
+[agents.recovery_planner]
+description = "Project-locked recovery planner for strategy resets after repeated failure"
+config_file = "./agents/recovery_planner.toml"
+
+[agents.verifier]
+description = "Project-locked final verifier for completion and residual-risk checks"
+config_file = "./agents/verifier.toml"

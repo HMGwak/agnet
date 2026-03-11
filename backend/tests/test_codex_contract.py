@@ -27,46 +27,79 @@ GENERATED_DIR = CODEX_RUNTIME_DIR / "generated"
 
 AGENT_DESCRIPTIONS = {
     "intake": "Intake agent",
+    "orchestrator": "Orchestrator agent",
+    "explorer": "Explorer agent",
     "planner": "Planner agent",
     "critic": "Critic agent",
     "executor": "Executor agent",
     "tester": "Tester agent",
     "reviewer": "Reviewer agent",
+    "recovery_planner": "Recovery planner agent",
+    "verifier": "Verifier agent",
+}
+
+AGENT_MODELS = {
+    "intake": "gpt-5.4",
+    "orchestrator": "gpt-5.4",
+    "explorer": "gpt-5.3-codex-spark",
+    "planner": "gpt-5.4",
+    "critic": "gpt-5.4",
+    "executor": "gpt-5-codex",
+    "tester": "gpt-5-codex",
+    "reviewer": "gpt-5.4",
+    "recovery_planner": "gpt-5.4",
+    "verifier": "gpt-5.4",
 }
 
 AGENT_REASONING = {
     "intake": "medium",
+    "orchestrator": "high",
+    "explorer": "low",
     "planner": "high",
     "critic": "high",
     "executor": "medium",
     "tester": "medium",
     "reviewer": "high",
+    "recovery_planner": "xhigh",
+    "verifier": "high",
 }
 
 AGENT_MULTI_AGENT = {
     "intake": False,
+    "orchestrator": False,
+    "explorer": False,
     "planner": False,
     "critic": False,
     "executor": True,
     "tester": False,
     "reviewer": False,
+    "recovery_planner": False,
+    "verifier": False,
 }
 
 INSTRUCTION_TEXT = {
     "intake": "Intake instructions.",
+    "orchestrator": "Orchestrator instructions.",
+    "explorer": "Explorer instructions.",
     "planner": "Planner instructions.",
     "critic": "Critic instructions.",
     "executor": "Executor instructions.",
     "tester": "Tester instructions.",
     "reviewer": "Reviewer instructions.",
+    "recovery_planner": "Recovery planner instructions.",
+    "verifier": "Verifier instructions.",
 }
 
 PROMPT_TEXT = {
+    "explore": "Explore prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input",
     "plan": "Plan prompt for $repo_name in $workspace_name on $branch_name from $base_branch at $working_directory with $critique_max_rounds and $test_fix_loops. $task_input",
     "critique": "Critique prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input $plan_text",
-    "implement": "Implement prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input $plan_text",
+    "implement": "Implement prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input $plan_text $repair_request",
     "test": "Test prompt for $repo_name in $workspace_name on $branch_name at $working_directory with $test_fix_loops. $task_input $plan_text",
     "review": "Review prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input $plan_text $test_output $diff_text",
+    "orchestrate": "Orchestrate prompt for $repo_name in $workspace_name on $branch_name at $working_directory during $current_phase. $task_input $plan_text $failure_output $test_output $review_output $diff_text",
+    "recover": "Recover prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input $plan_text $failure_output",
+    "verify": "Verify prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input $plan_text $test_output $review_output $diff_text",
 }
 
 
@@ -94,6 +127,7 @@ def make_manifest_text() -> str:
             [
                 f"[agents.{agent_name}]",
                 f'description = {json.dumps(AGENT_DESCRIPTIONS[agent_name])}',
+                f'model = {json.dumps(AGENT_MODELS[agent_name])}',
                 f'model_reasoning_effort = {json.dumps(AGENT_REASONING[agent_name])}',
                 f"multi_agent = {'true' if AGENT_MULTI_AGENT[agent_name] else 'false'}",
                 "",
@@ -234,6 +268,7 @@ def test_generated_contract_is_runtime_compatible(tmp_path):
     )
     planner_config = project_config.build_agent_config("planner")
     assert planner_config["features"]["multi_agent"] is False
+    assert planner_config["model"] == "gpt-5.4"
     generated_instruction = Path(planner_config["model_instructions_file"])
     assert generated_instruction.parent == generated_dir.resolve()
     rendered_instruction = generated_instruction.read_text(encoding="utf-8")
@@ -252,6 +287,7 @@ def test_generated_contract_is_runtime_compatible(tmp_path):
         critique_max_rounds=2,
         test_fix_loops=2,
         task_input="Do the thing",
+        exploration_text="",
     )
     assert rendered_prompt.startswith("<!-- Generated from codex-contract.toml.")
     assert "Do the thing" in rendered_prompt

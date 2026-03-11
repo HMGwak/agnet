@@ -38,7 +38,17 @@ def write_policy(path: Path) -> None:
 
 def write_prompts(directory: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
-    for name in ("plan", "critique", "implement", "test", "review"):
+    for name in (
+        "explore",
+        "plan",
+        "critique",
+        "implement",
+        "test",
+        "review",
+        "orchestrate",
+        "recover",
+        "verify",
+    ):
         (directory / f"{name}.md").write_text(f"{name}: $task_input", encoding="utf-8")
 
 
@@ -80,7 +90,18 @@ def test_runtime_task_logger_uses_session_logs_dir(tmp_path, monkeypatch):
     instructions_dir.mkdir(parents=True)
     rules_dir.mkdir(parents=True)
     (rules_dir / "project.rules").write_text("Read-only local inspection commands are allowed.", encoding="utf-8")
-    for name in ("planner", "critic", "executor", "tester", "reviewer", "intake"):
+    for name in (
+        "intake",
+        "orchestrator",
+        "explorer",
+        "planner",
+        "critic",
+        "executor",
+        "tester",
+        "reviewer",
+        "recovery_planner",
+        "verifier",
+    ):
         (instructions_dir / f"{name}.md").write_text(f"{name}", encoding="utf-8")
         (config_dir / f"{name}.toml").write_text(
             f'model = "gpt-5.4"\nmodel_instructions_file = "../instructions/{name}.md"\n',
@@ -93,6 +114,12 @@ def test_runtime_task_logger_uses_session_logs_dir(tmp_path, monkeypatch):
                 "",
                 "[agents.intake]",
                 'config_file = "./agents/intake.toml"',
+                "",
+                "[agents.orchestrator]",
+                'config_file = "./agents/orchestrator.toml"',
+                "",
+                "[agents.explorer]",
+                'config_file = "./agents/explorer.toml"',
                 "",
                 "[agents.planner]",
                 'config_file = "./agents/planner.toml"',
@@ -108,6 +135,12 @@ def test_runtime_task_logger_uses_session_logs_dir(tmp_path, monkeypatch):
                 "",
                 "[agents.reviewer]",
                 'config_file = "./agents/reviewer.toml"',
+                "",
+                "[agents.recovery_planner]",
+                'config_file = "./agents/recovery_planner.toml"',
+                "",
+                "[agents.verifier]",
+                'config_file = "./agents/verifier.toml"',
             ]
         ),
         encoding="utf-8",

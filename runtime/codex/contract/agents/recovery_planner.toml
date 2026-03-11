@@ -1,10 +1,10 @@
 # Generated from codex-contract.toml. Do not edit directly.
 
-model = "gpt-5-codex"
+model = "gpt-5.4"
 approval_policy = "never"
 sandbox_mode = "workspace-write"
-model_reasoning_effort = "medium"
-model_instructions_file = "../instructions/tester.md"
+model_reasoning_effort = "xhigh"
+model_instructions_file = "../instructions/recovery_planner.md"
 
 [features]
 multi_agent = false

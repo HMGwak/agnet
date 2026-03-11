@@ -21,3 +21,6 @@ $task_input
 
 Approved plan:
 $plan_text
+
+Repair request:
+$repair_request

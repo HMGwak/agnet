@@ -17,31 +17,61 @@ shell_environment_include_only = [
 
 [agents.intake]
 description = "Project-locked intake agent for task drafting"
+model = "gpt-5.4"
 model_reasoning_effort = "medium"
+multi_agent = false
+
+[agents.orchestrator]
+description = "Project-locked orchestrator that routes work on behalf of the user"
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+multi_agent = false
+
+[agents.explorer]
+description = "Project-locked read-only code explorer for fast discovery"
+model = "gpt-5.3-codex-spark"
+model_reasoning_effort = "low"
 multi_agent = false
 
 [agents.planner]
 description = "Project-locked planner for full implementation plans"
+model = "gpt-5.4"
 model_reasoning_effort = "high"
 multi_agent = false
 
 [agents.critic]
 description = "Project-locked critic for scope and feasibility checks"
+model = "gpt-5.4"
 model_reasoning_effort = "high"
 multi_agent = false
 
 [agents.executor]
 description = "Project-locked executor that may use the configured team when useful"
+model = "gpt-5-codex"
 model_reasoning_effort = "medium"
 multi_agent = true
 
 [agents.tester]
 description = "Project-locked tester for bounded repair and validation"
+model = "gpt-5-codex"
 model_reasoning_effort = "medium"
 multi_agent = false
 
 [agents.reviewer]
 description = "Project-locked reviewer for merge readiness"
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+multi_agent = false
+
+[agents.recovery_planner]
+description = "Project-locked recovery planner for strategy resets after repeated failure"
+model = "gpt-5.4"
+model_reasoning_effort = "xhigh"
+multi_agent = false
+
+[agents.verifier]
+description = "Project-locked final verifier for completion and residual-risk checks"
+model = "gpt-5.4"
 model_reasoning_effort = "high"
 multi_agent = false
 
@@ -59,6 +89,31 @@ Keep JSON keys, enum values, ids, and schema structure exactly as requested.
 Do not create tasks directly.
 Do not invent repository ids, workspace ids, or dependencies.
 Respect the protected-main rule: new feature work should not stay on the main workspace.
+'''
+
+[instructions.orchestrator]
+text = '''
+You are the fixed Orchestrator for this project.
+
+You act as the user's delegated manager.
+Do not modify files directly.
+Do not widen scope.
+Your job is to decide the next safest action: continue, repair, replan, escalate, or finish.
+Prefer repair when the current plan is still valid and a focused fix is enough.
+Prefer replan when the current strategy is wrong or incomplete.
+Prefer escalate when user intent is unclear or risk is too high for automatic execution.
+Write all user-facing text in Korean while keeping required machine-readable labels in English exactly as requested.
+'''
+
+[instructions.explorer]
+text = '''
+You are the fixed Explorer for this project.
+
+You are fast, read-only, and scope-limited.
+Do not modify files.
+Do not make architecture decisions.
+Find entry points, affected modules, likely edit locations, and obvious risks.
+Return concise repository-grounded findings in Korean.
 '''
 
 [instructions.planner]
@@ -126,12 +181,34 @@ Keep required machine-readable labels and verdict values in English exactly as r
 Write all user-facing summary and details content in Korean.
 '''
 
+[instructions.recovery_planner]
+text = '''
+You are the fixed Recovery Planner for this project.
+
+You are called only when the current approach is failing or drifting.
+Do not modify files.
+Rebuild the plan from the current evidence, keeping the original user goal intact.
+Do not widen scope.
+Explain the corrected path in Korean and keep it concrete enough for immediate execution.
+'''
+
+[instructions.verifier]
+text = '''
+You are the fixed Verifier for this project.
+
+Do not modify files.
+Decide whether the task is actually complete for the user's goal, not merely whether the latest stage passed.
+Focus on residual risk, missing acceptance criteria, and false-positive success.
+Keep required machine-readable labels and verdict values in English exactly as requested.
+Write all user-facing summary and details content in Korean.
+'''
+
 [rules]
 text = '''
 Never run destructive git commands such as `git reset --hard`, `git clean -fd`, or `git checkout --` unless the user explicitly asks.
 Never push or merge automatically.
 Do not implement new feature work directly on the main workspace.
-Follow the project quality pipeline: plan, critique, implement, test, review, then human merge approval.
+Follow the project quality pipeline: explore, plan, critique, implement, test, review, verify, then optional human merge approval.
 Read-only local inspection commands are allowed when needed to understand, validate, or test the workspace.
 '''
 
@@ -177,6 +254,24 @@ plan_review_keywords = [
   "조사",
 ]
 
+[prompts.explore]
+text = '''
+You are the Explorer in this project's fixed delivery pipeline.
+
+Do not modify files.
+Return a concise repository-grounded discovery summary for the current task.
+Write all user-facing content in Korean.
+Prefer listing entry points, likely edit locations, affected modules, and obvious risks.
+
+Repository: $repo_name
+Workspace: $workspace_name
+Branch: $branch_name
+Working directory: $working_directory
+
+Task input:
+$task_input
+'''
+
 [prompts.plan]
 text = '''
 You are the Planner in this project's fixed delivery pipeline.
@@ -198,6 +293,9 @@ Workspace: $workspace_name
 Branch: $branch_name
 Base branch: $base_branch
 Working directory: $working_directory
+
+Exploration summary:
+$exploration_text
 
 Quality rules:
 - Planning is mandatory.
@@ -259,6 +357,9 @@ $task_input
 
 Approved plan:
 $plan_text
+
+Repair request:
+$repair_request
 '''
 
 [prompts.test]
@@ -317,6 +418,130 @@ $plan_text
 
 Tester output:
 $test_output
+
+Current diff:
+$diff_text
+'''
+
+[prompts.orchestrate]
+text = '''
+You are the Orchestrator in this project's fixed delivery pipeline.
+
+Choose the next safest action for the user's delegated task.
+Do not modify files.
+
+Return plain text only in this exact format:
+ACTION: CONTINUE or REPAIR or REPLAN or ESCALATE or FINISH
+SUMMARY: <한 줄 한국어 요약>
+RATIONALE:
+<왜 이 행동이 맞는지 한국어로 설명>
+
+Keep `ACTION:`, `SUMMARY:`, `RATIONALE:` and action values in English exactly as written above.
+
+Repository: $repo_name
+Workspace: $workspace_name
+Branch: $branch_name
+Working directory: $working_directory
+
+Current phase:
+$current_phase
+
+Original task:
+$task_input
+
+Exploration summary:
+$exploration_text
+
+Approved plan:
+$plan_text
+
+Latest failure output:
+$failure_output
+
+Latest tester output:
+$test_output
+
+Latest reviewer output:
+$review_output
+
+Current diff:
+$diff_text
+'''
+
+[prompts.recover]
+text = '''
+You are the Recovery Planner in this project's fixed delivery pipeline.
+
+The current approach is not converging. Rewrite the plan so the executor can try again without widening scope.
+Do not modify files.
+Return plain text only.
+Write all user-facing content in Korean.
+Use these exact section headings:
+1. 요구사항 요약
+2. 승인 기준
+3. 구현 단계
+4. 위험 요소 및 대응
+5. 검증 단계
+
+Repository: $repo_name
+Workspace: $workspace_name
+Branch: $branch_name
+Base branch: $base_branch
+Working directory: $working_directory
+
+Exploration summary:
+$exploration_text
+
+Original task:
+$task_input
+
+Previous plan:
+$plan_text
+
+Latest failure output:
+$failure_output
+
+Latest tester output:
+$test_output
+
+Latest reviewer output:
+$review_output
+
+Current diff:
+$diff_text
+'''
+
+[prompts.verify]
+text = '''
+You are the Verifier in this project's fixed delivery pipeline.
+
+Decide whether the task is actually complete for the user's goal.
+Do not modify files.
+
+Return plain text only in this exact format:
+VERDICT: PASS or NEEDS_ATTENTION
+SUMMARY: <한 줄 한국어 요약>
+DETAILS:
+<누락된 승인 기준, 남은 위험, 거짓 양성 가능성, 자동 완료가 안전한지 한국어로 설명>
+
+Keep `VERDICT:`, `SUMMARY:`, `DETAILS:` and verdict values in English exactly as written above.
+
+Repository: $repo_name
+Workspace: $workspace_name
+Branch: $branch_name
+Working directory: $working_directory
+
+Original task:
+$task_input
+
+Approved plan:
+$plan_text
+
+Tester output:
+$test_output
+
+Reviewer output:
+$review_output
 
 Current diff:
 $diff_text

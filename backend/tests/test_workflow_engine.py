@@ -54,9 +54,14 @@ class FakeWorkspaceManager:
 class FakeAgentRunner:
     def __init__(
         self,
+        explore_output: str | list[str] | None = None,
         critique_output: str | None = None,
-        review_output: str | None = None,
-        test_output: str | None = None,
+        review_output: str | list[str] | None = None,
+        test_output: str | list[str] | None = None,
+        orchestrate_output: str | list[str] | None = None,
+        recovery_output: str | None = None,
+        verify_output: str | list[str] | None = None,
+        implement_output: str | list[str] | None = None,
     ):
         self.policy = SimpleNamespace(
             critique_max_rounds=2,
@@ -64,24 +69,40 @@ class FakeAgentRunner:
             critique_required=True,
             review_required=True,
         )
+        self.explore_output = explore_output or "SUMMARY: Repo entrypoints found."
         self.critique_output = (
             critique_output
             or "VERDICT: APPROVED\nSUMMARY: Plan looks good.\nPLAN:\n1. Do work"
         )
-        self.review_output = (
-            review_output
-            or "VERDICT: PASS\nSUMMARY: Ready for merge.\nDETAILS:\nLooks good."
+        self.review_output = review_output or (
+            "VERDICT: PASS\nSUMMARY: Ready for merge.\nDETAILS:\nLooks good."
         )
-        self.test_output = (
-            test_output
-            or "VERDICT: PASS\nSUMMARY: Tests passed.\nDETAILS:\npytest ok."
+        self.test_output = test_output or (
+            "VERDICT: PASS\nSUMMARY: Tests passed.\nDETAILS:\npytest ok."
         )
+        self.orchestrate_output = orchestrate_output or (
+            "ACTION: ESCALATE\nSUMMARY: Needs user input.\nRATIONALE:\nNo safe automatic path."
+        )
+        self.recovery_output = recovery_output or "1. Adjust plan"
+        self.verify_output = verify_output or (
+            "VERDICT: PASS\nSUMMARY: Completion verified.\nDETAILS:\nLooks complete."
+        )
+        self.implement_output = implement_output or "implemented"
+
+    def _next(self, value):
+        if isinstance(value, list):
+            assert value, "No more fake outputs configured"
+            return value.pop(0)
+        return value
 
     def format_task_input(self, task_title: str, task_description: str) -> str:
         return task_title if not task_description else f"{task_title}\n{task_description}"
 
     async def cancel(self, task_id: int) -> None:
         return None
+
+    async def explore_repo(self, workspace_path: Path, task_description: str, **kw) -> tuple[int, str]:
+        return 0, self._next(self.explore_output)
 
     async def generate_plan(self, workspace_path: Path, task_description: str, **kw) -> tuple[int, str]:
         return 0, "1. Do work"
@@ -93,13 +114,13 @@ class FakeAgentRunner:
         task_description: str,
         **kw,
     ) -> tuple[int, str]:
-        return 0, self.critique_output
+        return 0, self._next(self.critique_output)
 
     async def implement_plan(self, workspace_path: Path, plan_text: str, task_description: str, **kw) -> tuple[int, str]:
-        return 0, "implemented"
+        return 0, self._next(self.implement_output)
 
     async def run_tests(self, workspace_path: Path, **kw) -> tuple[int, str]:
-        return 0, self.test_output
+        return 0, self._next(self.test_output)
 
     async def review_result(
         self,
@@ -110,7 +131,21 @@ class FakeAgentRunner:
         diff_text: str,
         **kw,
     ) -> tuple[int, str]:
-        return 0, self.review_output
+        return 0, self._next(self.review_output)
+
+    async def orchestrate_next_action(self, workspace_path: Path, **kw) -> tuple[int, str]:
+        return 0, self._next(self.orchestrate_output)
+
+    async def generate_recovery_plan(
+        self,
+        workspace_path: Path,
+        task_description: str,
+        **kw,
+    ) -> tuple[int, str]:
+        return 0, self.recovery_output
+
+    async def verify_completion(self, workspace_path: Path, **kw) -> tuple[int, str]:
+        return 0, self._next(self.verify_output)
 
 
 class FakeEventSink:
@@ -221,7 +256,15 @@ async def test_workflow_engine_moves_pending_task_to_merge_approval():
         (1, "TESTING", "AWAIT_MERGE_APPROVAL"),
     ]
     run_objects = [obj for obj in engine.session_factory.last_session.objects if isinstance(obj, Run)]
-    assert [run.phase for run in run_objects] == ["plan", "critique", "implement", "test", "review"]
+    assert [run.phase for run in run_objects] == [
+        "explore",
+        "plan",
+        "critique",
+        "implement",
+        "test",
+        "review",
+        "verify",
+    ]
     assert all(run.finished_at is not None for run in run_objects)
     assert all(run.exit_code == 0 for run in run_objects)
     assert workspace_manager.commits[-1][1] == "Task #1: Implement feature"
@@ -301,3 +344,48 @@ async def test_workflow_engine_proceeds_to_testing_when_implementation_makes_no_
     assert task.status == TaskStatus.AWAIT_MERGE_APPROVAL
     assert any("파일 변경을 만들지 않은 상태로 구현이 완료" in log for log in events.logs)
     assert any("병합 가능한 워크스페이스 변경이 남지 않았습니다" in log for log in events.logs)
+
+
+@pytest.mark.asyncio
+async def test_workflow_engine_uses_orchestrator_repair_loop_after_review_block():
+    task = Task(
+        id=1,
+        repo_id=2,
+        workspace_id=5,
+        title="Implement feature",
+        description="",
+        status=TaskStatus.PENDING,
+    )
+    repo = Repo(id=2, name="demo", path="D:/repo", default_branch="main")
+    workspace = Workspace(
+        id=5,
+        repo_id=2,
+        name="Main",
+        kind=WorkspaceKind.MAIN,
+        base_branch="main",
+        branch_name="workspace/main/2",
+        workspace_path=None,
+        is_active=True,
+    )
+    events = FakeEventSink()
+    engine = SymphonyWorkflowEngine(
+        FakeWorkspaceManager(),
+        FakeAgentRunner(
+            review_output=[
+                "VERDICT: NEEDS_ATTENTION\nSUMMARY: Fix the edge case.\nDETAILS:\nBlocked.",
+                "VERDICT: PASS\nSUMMARY: Ready for merge.\nDETAILS:\nLooks good.",
+            ],
+            orchestrate_output=[
+                "ACTION: REPAIR\nSUMMARY: Keep the current plan.\nRATIONALE:\nApply a focused fix.",
+            ],
+        ),
+        events,
+        FakeSessionFactory(task, repo, workspace),
+    )
+
+    await engine.process_task(1)
+
+    assert task.status == TaskStatus.AWAIT_MERGE_APPROVAL
+    assert any("오케스트레이터 판단 (review): REPAIR" in log for log in events.logs)
+    run_objects = [obj for obj in engine.session_factory.last_session.objects if isinstance(obj, Run)]
+    assert [run.phase for run in run_objects].count("implement") == 2
