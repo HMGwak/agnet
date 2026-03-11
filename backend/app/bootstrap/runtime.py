@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import sys
 
-from app.adapters import AppEventSink, CodexRunner, GitManager, SQLiteStore
+from app.adapters import AppEventSink, CodexRunner, GitManager, LearningRegistry, SQLiteStore
 from app.api.websocket import ws_manager
 from app.bootstrap.codex_sidecar import CodexSidecarManager
 from app.config import settings
@@ -11,6 +11,7 @@ from app.core.codex_project_config import CodexProjectConfig
 from app.core.project_policy import ProjectPolicy, load_project_policy
 from app.core.prompt_library import PromptLibrary
 from app.core.repo_service import RepoService
+from app.core.task_learning import TaskLearningService
 from app.core.task_commands import TaskCommandService
 from app.core.task_intake import TaskIntakeService
 from app.core.workspace_service import WorkspaceService
@@ -34,6 +35,7 @@ class AppRuntime:
     repo_service: RepoService
     workspace_service: WorkspaceService
     task_intake: TaskIntakeService
+    task_learning: TaskLearningService
     orchestrator: SymphonyWorkflowEngine
     worker_pool: WorkerPool
     task_commands: TaskCommandService
@@ -90,7 +92,19 @@ def create_runtime() -> AppRuntime:
     task_logger.set_ws_manager(ws_manager)
     event_sink = AppEventSink(task_logger, ws_manager)
     store = SQLiteStore()
-    orchestrator = SymphonyWorkflowEngine(git_mgr, codex, event_sink, async_session)
+    learning_registry = LearningRegistry(
+        reflections_dir=settings.TASK_LEARNINGS_DIR / "reflections",
+        registry_file=settings.TASK_LEARNINGS_DIR / "registry.json",
+        generated_skills_dir=settings.GENERATED_SKILLS_DIR,
+    )
+    task_learning = TaskLearningService(codex, event_sink, learning_registry)
+    orchestrator = SymphonyWorkflowEngine(
+        git_mgr,
+        codex,
+        event_sink,
+        async_session,
+        learning_service=task_learning,
+    )
     worker_pool = WorkerPool(orchestrator)
     orchestrator.set_worker_pool(worker_pool)
     repo_service = RepoService(store, git_mgr)
@@ -110,6 +124,7 @@ def create_runtime() -> AppRuntime:
         repo_service=repo_service,
         workspace_service=workspace_service,
         task_intake=task_intake,
+        task_learning=task_learning,
         orchestrator=orchestrator,
         worker_pool=worker_pool,
         task_commands=task_commands,

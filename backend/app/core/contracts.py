@@ -82,6 +82,11 @@ class AgentRunner(Protocol):
         workspace_path: Path,
         **kw,
     ) -> tuple[int, str]: ...
+    async def reflect_task_learning(
+        self,
+        workspace_path: Path,
+        **kw,
+    ) -> dict: ...
 
 
 class EventSink(Protocol):

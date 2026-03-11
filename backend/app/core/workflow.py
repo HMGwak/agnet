@@ -23,6 +23,7 @@ class SymphonyWorkflowEngine:
         agent_runner: AgentRunner,
         event_sink: EventSink,
         session_factory,
+        learning_service=None,
     ):
         self.git = workspace_manager
         self.codex = agent_runner
@@ -30,6 +31,7 @@ class SymphonyWorkflowEngine:
         self.session_factory = session_factory
         self.worker_pool = None
         self.orchestrator = TaskOrchestrator(agent_runner, event_sink)
+        self.learning = learning_service
 
     def set_worker_pool(self, pool):
         self.worker_pool = pool
@@ -527,6 +529,31 @@ class SymphonyWorkflowEngine:
                     await self._update_status(session, task, TaskStatus.IMPLEMENTING)
                     continue
                 raise NeedsAttentionError(next_step["message"])
+
+            if self.learning is not None:
+                try:
+                    await self.events.log(task.id, "단계: 학습 회고")
+                    await self.learning.capture_success(
+                        workspace_path=workspace_path,
+                        task_id=task.id,
+                        task_input=task_input,
+                        task_title=task.title,
+                        plan_text=task.plan_text or "",
+                        exploration_text=exploration_text,
+                        test_output=test_output,
+                        review_output=review_output,
+                        verify_output=verify_output,
+                        diff_text=task.diff_text or "",
+                        repo_name=repo.name,
+                        workspace_name=workspace.name if workspace else "",
+                        branch_name=workspace.branch_name if workspace else task.branch_name or "",
+                        base_branch=workspace.base_branch if workspace else repo.default_branch,
+                        log_callback=log_cb,
+                    )
+                    self._record_run(session, task.id, "learn", 0)
+                except Exception as exc:
+                    self._record_run(session, task.id, "learn", 1)
+                    await self.events.log(task.id, f"경고: 학습 회고를 건너뜁니다: {exc}")
 
             await session.commit()
             await self._update_status(session, task, TaskStatus.AWAIT_MERGE_APPROVAL)

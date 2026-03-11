@@ -86,5 +86,13 @@ class Settings(BaseSettings):
     def SESSION_METADATA_FILE(self) -> Path:
         return self.SESSION_LOGS_DIR / "session.json"
 
+    @property
+    def TASK_LEARNINGS_DIR(self) -> Path:
+        return self.PROJECT_DATA_DIR / "learnings"
+
+    @property
+    def GENERATED_SKILLS_DIR(self) -> Path:
+        return self.CODEX_HOME_DIR / "skills" / "generated"
+
 
 settings = Settings()

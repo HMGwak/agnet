@@ -48,6 +48,7 @@ def write_prompts(directory: Path) -> None:
         "orchestrate",
         "recover",
         "verify",
+        "learn",
     ):
         (directory / f"{name}.md").write_text(f"{name}: $task_input", encoding="utf-8")
 
@@ -93,6 +94,7 @@ def test_runtime_task_logger_uses_session_logs_dir(tmp_path, monkeypatch):
     for name in (
         "intake",
         "orchestrator",
+        "doc_manager",
         "explorer",
         "planner",
         "critic",
@@ -117,6 +119,9 @@ def test_runtime_task_logger_uses_session_logs_dir(tmp_path, monkeypatch):
                 "",
                 "[agents.orchestrator]",
                 'config_file = "./agents/orchestrator.toml"',
+                "",
+                "[agents.doc_manager]",
+                'config_file = "./agents/doc_manager.toml"',
                 "",
                 "[agents.explorer]",
                 'config_file = "./agents/explorer.toml"',

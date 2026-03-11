@@ -28,6 +28,10 @@ config_file = "./agents/intake.toml"
 description = "Project-locked orchestrator that routes work on behalf of the user"
 config_file = "./agents/orchestrator.toml"
 
+[agents.doc_manager]
+description = "Project-locked documentation and learning manager"
+config_file = "./agents/doc_manager.toml"
+
 [agents.explorer]
 description = "Project-locked read-only code explorer for fast discovery"
 config_file = "./agents/explorer.toml"

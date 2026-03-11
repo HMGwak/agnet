@@ -23,6 +23,7 @@ class PromptLibrary:
         "orchestrate",
         "recover",
         "verify",
+        "learn",
     )
 
     @classmethod

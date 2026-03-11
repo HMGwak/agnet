@@ -63,6 +63,7 @@ class FakeAgentRunner:
         recovery_output: str | list[str] | None = None,
         verify_output: str | list[str] | None = None,
         implement_output: str | list[str] | None = None,
+        learn_output: dict | None = None,
     ):
         self.policy = SimpleNamespace(
             critique_max_rounds=2,
@@ -90,6 +91,14 @@ class FakeAgentRunner:
             "VERDICT: PASS\nSUMMARY: Completion verified.\nDETAILS:\nLooks complete."
         )
         self.implement_output = implement_output or "implemented"
+        self.learn_output = learn_output or {
+            "summary": "Reusable technique learned.",
+            "classification": "note_only",
+            "technique_name": "General workflow pattern",
+            "why_reusable": "Stored as a note only.",
+            "evidence": ["verify passed"],
+            "skill": None,
+        }
         self.explore_calls: list[dict] = []
         self.orchestrate_calls: list[dict] = []
         self.recovery_calls: list[dict] = []
@@ -155,6 +164,9 @@ class FakeAgentRunner:
     async def verify_completion(self, workspace_path: Path, **kw) -> tuple[int, str]:
         return 0, self._next(self.verify_output)
 
+    async def reflect_task_learning(self, workspace_path: Path, **kw) -> dict:
+        return self.learn_output
+
 
 class FakeEventSink:
     def __init__(self):
@@ -172,6 +184,18 @@ class FakeEventSink:
 
     async def broadcast_task_deleted(self, task_id: int) -> None:
         return None
+
+
+class FakeLearningService:
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def capture_success(self, **kw):
+        self.calls.append(kw)
+        return {
+            "reflection_path": "D:/project/learnings/reflections/task-1.json",
+            "skill_path": None,
+        }
 
 
 class FakeSession:
@@ -238,11 +262,13 @@ async def test_workflow_engine_moves_pending_task_to_merge_approval():
     )
     events = FakeEventSink()
     workspace_manager = FakeWorkspaceManager()
+    learning_service = FakeLearningService()
     engine = SymphonyWorkflowEngine(
         workspace_manager,
         FakeAgentRunner(),
         events,
         FakeSessionFactory(task, repo, workspace),
+        learning_service=learning_service,
     )
 
     await engine.process_task(1)
@@ -273,10 +299,12 @@ async def test_workflow_engine_moves_pending_task_to_merge_approval():
         "test",
         "review",
         "verify",
+        "learn",
     ]
     assert all(run.finished_at is not None for run in run_objects)
     assert all(run.exit_code == 0 for run in run_objects)
     assert workspace_manager.commits[-1][1] == "Task #1: Implement feature"
+    assert learning_service.calls[0]["task_id"] == 1
 
 
 @pytest.mark.asyncio

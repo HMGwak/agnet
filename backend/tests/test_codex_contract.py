@@ -28,6 +28,7 @@ GENERATED_DIR = CODEX_RUNTIME_DIR / "generated"
 AGENT_DESCRIPTIONS = {
     "intake": "Intake agent",
     "orchestrator": "Orchestrator agent",
+    "doc_manager": "Doc manager agent",
     "explorer": "Explorer agent",
     "planner": "Planner agent",
     "critic": "Critic agent",
@@ -41,6 +42,7 @@ AGENT_DESCRIPTIONS = {
 AGENT_MODELS = {
     "intake": "gpt-5.4",
     "orchestrator": "gpt-5.4",
+    "doc_manager": "gpt-5.4",
     "explorer": "gpt-5.3-codex-spark",
     "planner": "gpt-5.4",
     "critic": "gpt-5.4",
@@ -54,6 +56,7 @@ AGENT_MODELS = {
 AGENT_REASONING = {
     "intake": "medium",
     "orchestrator": "high",
+    "doc_manager": "high",
     "explorer": "low",
     "planner": "high",
     "critic": "high",
@@ -67,6 +70,7 @@ AGENT_REASONING = {
 AGENT_MULTI_AGENT = {
     "intake": False,
     "orchestrator": False,
+    "doc_manager": False,
     "explorer": False,
     "planner": False,
     "critic": False,
@@ -80,6 +84,7 @@ AGENT_MULTI_AGENT = {
 INSTRUCTION_TEXT = {
     "intake": "Intake instructions.",
     "orchestrator": "Orchestrator instructions.",
+    "doc_manager": "Doc manager instructions.",
     "explorer": "Explorer instructions.",
     "planner": "Planner instructions.",
     "critic": "Critic instructions.",
@@ -100,6 +105,7 @@ PROMPT_TEXT = {
     "orchestrate": "Orchestrate prompt for $repo_name in $workspace_name on $branch_name at $working_directory during $current_phase. $task_input $plan_text $failure_output $test_output $review_output $diff_text",
     "recover": "Recover prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input $plan_text $failure_output",
     "verify": "Verify prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input $plan_text $test_output $review_output $diff_text",
+    "learn": "Learn prompt for $repo_name in $workspace_name on $branch_name at $working_directory. $task_input $plan_text $exploration_text $test_output $review_output $verify_output $diff_text",
 }
 
 

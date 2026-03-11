@@ -16,6 +16,7 @@ PROMPTS_DIR_RELATIVE_PATH = Path("..") / "prompts"
 REQUIRED_AGENTS = (
     "intake",
     "orchestrator",
+    "doc_manager",
     "explorer",
     "planner",
     "critic",
@@ -35,6 +36,7 @@ REQUIRED_PROMPTS = (
     "orchestrate",
     "recover",
     "verify",
+    "learn",
 )
 MARKDOWN_HEADER = "<!-- Generated from codex-contract.toml. Do not edit directly. -->"
 TEXT_HEADER = "# Generated from codex-contract.toml. Do not edit directly."

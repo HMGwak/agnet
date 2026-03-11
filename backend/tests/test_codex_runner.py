@@ -59,6 +59,9 @@ def make_prompts():
             "verify": SimpleNamespace(
                 substitute=lambda context: f"VERIFY::{context['plan_text']}::{context['task_input']}"
             ),
+            "learn": SimpleNamespace(
+                substitute=lambda context: f"LEARN::{context['task_input']}::{context['plan_text']}"
+            ),
         }
     )
 
@@ -82,6 +85,7 @@ def make_project_config(tmp_path: Path) -> CodexProjectConfig:
     for name, multi_agent, model in (
         ("intake", False, "gpt-5.4"),
         ("orchestrator", False, "gpt-5.4"),
+        ("doc_manager", False, "gpt-5.4"),
         ("explorer", False, "gpt-5.3-codex-spark"),
         ("planner", False, "gpt-5.4"),
         ("critic", False, "gpt-5.4"),
@@ -460,6 +464,59 @@ async def test_generate_plan_uses_project_prompt_library(httpx_mock: HTTPXMock, 
     assert instructions_path.name == "planner.md"
     assert "planner instructions" in instructions_path.read_text(encoding="utf-8")
     assert body["config"]["features"]["multi_agent"] is False
+
+
+@pytest.mark.asyncio
+async def test_reflect_task_learning_uses_doc_manager_and_returns_structured_payload(
+    httpx_mock: HTTPXMock, tmp_path
+):
+    runner = CodexRunner(
+        base_url="http://127.0.0.1:8765",
+        model="gpt-5.4",
+        sandbox_mode="workspace-write",
+        approval_policy="never",
+        run_timeout_s=300,
+        prompt_library=make_prompts(),
+        policy=make_policy(),
+        project_config=make_project_config(tmp_path),
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url="http://127.0.0.1:8765/intake",
+        json={
+            "status": "ok",
+            "response": {
+                "summary": "Reusable Playwright parsing pattern.",
+                "classification": "skill_candidate",
+                "technique_name": "Playwright table parsing",
+                "why_reusable": "The same DOM extraction pattern appears across tasks.",
+                "evidence": ["Used stable selectors and row normalization."],
+                "skill": {
+                    "name": "playwright-table-parsing",
+                    "description": "Extract table data with stable selectors and normalization.",
+                    "use_when": ["Parsing structured DOM tables repeatedly."],
+                    "do_not_use_when": ["The source is not DOM-based."],
+                    "steps": ["Locate stable row selectors.", "Normalize columns.", "Validate extracted rows."],
+                },
+            },
+        },
+        status_code=200,
+    )
+
+    payload = await runner.reflect_task_learning(
+        tmp_path,
+        output_schema={"type": "object"},
+        task_input="Parse legislation tables",
+        plan_text="1. Parse rows",
+    )
+
+    assert payload["classification"] == "skill_candidate"
+    post_request = httpx_mock.get_requests()[0]
+    body = json.loads(post_request.content.decode("utf-8"))
+    assert body["model"] == "gpt-5.4"
+    assert body["config"]["model"] == "gpt-5.4"
+    instructions_path = Path(body["config"]["model_instructions_file"])
+    assert instructions_path.name == "doc_manager.md"
 
 
 @pytest.mark.asyncio

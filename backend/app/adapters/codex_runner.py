@@ -212,8 +212,15 @@ class CodexRunner:
                 return text
         return ""
 
-    async def run_intake(self, prompt: str, cwd: Path, output_schema: dict[str, Any]) -> dict[str, Any]:
-        agent_config = self.project_config.build_agent_config("intake")
+    async def run_structured_prompt(
+        self,
+        prompt: str,
+        cwd: Path,
+        output_schema: dict[str, Any],
+        *,
+        agent_name: str,
+    ) -> dict[str, Any]:
+        agent_config = self.project_config.build_agent_config(agent_name)
         payload = {
             "prompt": prompt,
             "workingDirectory": str(cwd),
@@ -230,8 +237,16 @@ class CodexRunner:
             body = response.json()
         payload = body.get("response") or body.get("draft")
         if not isinstance(body, dict) or not isinstance(payload, dict):
-            raise ValueError("Task intake did not return structured JSON")
+            raise ValueError(f"Structured prompt '{agent_name}' did not return structured JSON")
         return payload
+
+    async def run_intake(self, prompt: str, cwd: Path, output_schema: dict[str, Any]) -> dict[str, Any]:
+        return await self.run_structured_prompt(
+            prompt,
+            cwd,
+            output_schema,
+            agent_name="intake",
+        )
 
     def _prompt_context(self, workspace_path: Path, **context: Any) -> dict[str, str]:
         base = {
@@ -377,3 +392,22 @@ class CodexRunner:
             **self._prompt_context(workspace_path, **kw),
         )
         return await self.run_codex(prompt, cwd=workspace_path, phase="verify", **kw)
+
+    async def reflect_task_learning(
+        self,
+        workspace_path: Path,
+        *,
+        output_schema: dict[str, Any],
+        **kw,
+    ) -> dict[str, Any]:
+        kw.setdefault("agent_name", "doc_manager")
+        prompt = self.prompts.render(
+            "learn",
+            **self._prompt_context(workspace_path, **kw),
+        )
+        return await self.run_structured_prompt(
+            prompt,
+            workspace_path,
+            output_schema,
+            agent_name=str(kw["agent_name"]),
+        )

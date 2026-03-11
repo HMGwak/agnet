@@ -27,6 +27,12 @@ model = "gpt-5.4"
 model_reasoning_effort = "high"
 multi_agent = false
 
+[agents.doc_manager]
+description = "Project-locked documentation and learning manager"
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+multi_agent = false
+
 [agents.explorer]
 description = "Project-locked read-only code explorer for fast discovery"
 model = "gpt-5.3-codex-spark"
@@ -103,6 +109,16 @@ Prefer repair when the current plan is still valid and a focused fix is enough.
 Prefer replan when the current strategy is wrong or incomplete.
 Prefer escalate when user intent is unclear or risk is too high for automatic execution.
 Write all user-facing text in Korean while keeping required machine-readable labels in English exactly as requested.
+'''
+
+[instructions.doc_manager]
+text = '''
+You are the fixed Doc Manager for this project.
+
+Do not modify source files.
+You may analyze task evidence and produce structured summaries, learning notes, and reusable skill drafts.
+Only recommend a skill when the technique is reusable across tasks and not just a one-off project quirk.
+Write all user-facing content in Korean unless a fixed machine-readable schema or frontmatter requires English.
 '''
 
 [instructions.explorer]
@@ -543,6 +559,45 @@ $test_output
 
 Reviewer output:
 $review_output
+
+Current diff:
+$diff_text
+'''
+
+[prompts.learn]
+text = '''
+You are the Doc Manager in this project's fixed delivery pipeline.
+
+Reflect on the completed task using only the provided evidence.
+Do not modify files.
+Return JSON only that matches the provided schema.
+Classify the result as:
+- `note_only` when the learning is too task-specific
+- `skill_candidate` when the technique is reusable across future tasks
+
+Repository: $repo_name
+Workspace: $workspace_name
+Branch: $branch_name
+Base branch: $base_branch
+Working directory: $working_directory
+
+Original task:
+$task_input
+
+Exploration summary:
+$exploration_text
+
+Approved plan:
+$plan_text
+
+Tester output:
+$test_output
+
+Reviewer output:
+$review_output
+
+Verifier output:
+$verify_output
 
 Current diff:
 $diff_text
