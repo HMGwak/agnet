@@ -136,7 +136,7 @@ class TaskOrchestrator:
         if not action_match:
             raise RuntimeError("오케스트레이터 출력에 ACTION이 없습니다")
         action = action_match.group(1).strip().upper()
-        if action not in {"CONTINUE", "REPAIR", "REPLAN", "ESCALATE", "FINISH"}:
+        if action not in {"REPAIR", "REPLAN", "ESCALATE", "FINISH"}:
             raise RuntimeError(f"예상하지 못한 orchestrator action '{action}'입니다")
         summary = summary_match.group(1).strip() if summary_match else ""
         rationale = rationale_match.group(1).strip() if rationale_match else ""

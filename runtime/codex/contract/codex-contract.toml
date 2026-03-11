@@ -431,12 +431,13 @@ Choose the next safest action for the user's delegated task.
 Do not modify files.
 
 Return plain text only in this exact format:
-ACTION: CONTINUE or REPAIR or REPLAN or ESCALATE or FINISH
+ACTION: REPAIR or REPLAN or ESCALATE or FINISH
 SUMMARY: <한 줄 한국어 요약>
 RATIONALE:
 <왜 이 행동이 맞는지 한국어로 설명>
 
 Keep `ACTION:`, `SUMMARY:`, `RATIONALE:` and action values in English exactly as written above.
+Use `FINISH` only when `Current phase` is `verify`.
 
 Repository: $repo_name
 Workspace: $workspace_name

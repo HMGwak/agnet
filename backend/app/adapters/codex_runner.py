@@ -69,17 +69,22 @@ class CodexRunner:
         agent_name: str | None = None,
         **_ignored,
     ) -> tuple[int, str]:
+        agent_config = self.project_config.build_agent_config(agent_name) if agent_name else None
         payload = {
             "phase": phase,
             "prompt": prompt,
             "workingDirectory": str(cwd),
-            "model": self.model,
+            "model": (
+                str(agent_config.get("model", self.model))
+                if agent_config is not None
+                else self.model
+            ),
             "sandboxMode": self.sandbox_mode,
             "approvalPolicy": self.approval_policy,
             "timeoutMs": self.run_timeout_ms,
         }
-        if agent_name:
-            payload["config"] = self.project_config.build_agent_config(agent_name)
+        if agent_config is not None:
+            payload["config"] = agent_config
 
         run_timeout = httpx.Timeout(connect=30.0, read=None, write=30.0, pool=30.0)
         async with httpx.AsyncClient(base_url=self.base_url, timeout=run_timeout) as client:
@@ -208,15 +213,16 @@ class CodexRunner:
         return ""
 
     async def run_intake(self, prompt: str, cwd: Path, output_schema: dict[str, Any]) -> dict[str, Any]:
+        agent_config = self.project_config.build_agent_config("intake")
         payload = {
             "prompt": prompt,
             "workingDirectory": str(cwd),
-            "model": self.model,
+            "model": str(agent_config.get("model", self.model)),
             "sandboxMode": self.sandbox_mode,
             "approvalPolicy": self.approval_policy,
             "timeoutMs": self.run_timeout_ms,
             "outputSchema": output_schema,
-            "config": self.project_config.build_agent_config("intake"),
+            "config": agent_config,
         }
         async with httpx.AsyncClient(base_url=self.base_url, timeout=120.0) as client:
             response = await client.post("/intake", json=payload)

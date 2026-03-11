@@ -75,6 +75,7 @@ class Task(Base):
     )
     branch_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     workspace_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    exploration_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     plan_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     diff_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

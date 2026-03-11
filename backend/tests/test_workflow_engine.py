@@ -54,12 +54,13 @@ class FakeWorkspaceManager:
 class FakeAgentRunner:
     def __init__(
         self,
+        explore_exit_code: int = 0,
         explore_output: str | list[str] | None = None,
         critique_output: str | None = None,
         review_output: str | list[str] | None = None,
         test_output: str | list[str] | None = None,
         orchestrate_output: str | list[str] | None = None,
-        recovery_output: str | None = None,
+        recovery_output: str | list[str] | None = None,
         verify_output: str | list[str] | None = None,
         implement_output: str | list[str] | None = None,
     ):
@@ -69,6 +70,7 @@ class FakeAgentRunner:
             critique_required=True,
             review_required=True,
         )
+        self.explore_exit_code = explore_exit_code
         self.explore_output = explore_output or "SUMMARY: Repo entrypoints found."
         self.critique_output = (
             critique_output
@@ -88,6 +90,9 @@ class FakeAgentRunner:
             "VERDICT: PASS\nSUMMARY: Completion verified.\nDETAILS:\nLooks complete."
         )
         self.implement_output = implement_output or "implemented"
+        self.explore_calls: list[dict] = []
+        self.orchestrate_calls: list[dict] = []
+        self.recovery_calls: list[dict] = []
 
     def _next(self, value):
         if isinstance(value, list):
@@ -102,7 +107,8 @@ class FakeAgentRunner:
         return None
 
     async def explore_repo(self, workspace_path: Path, task_description: str, **kw) -> tuple[int, str]:
-        return 0, self._next(self.explore_output)
+        self.explore_calls.append({"workspace_path": workspace_path, "task_description": task_description, **kw})
+        return self.explore_exit_code, self._next(self.explore_output)
 
     async def generate_plan(self, workspace_path: Path, task_description: str, **kw) -> tuple[int, str]:
         return 0, "1. Do work"
@@ -134,6 +140,7 @@ class FakeAgentRunner:
         return 0, self._next(self.review_output)
 
     async def orchestrate_next_action(self, workspace_path: Path, **kw) -> tuple[int, str]:
+        self.orchestrate_calls.append({"workspace_path": workspace_path, **kw})
         return 0, self._next(self.orchestrate_output)
 
     async def generate_recovery_plan(
@@ -142,7 +149,8 @@ class FakeAgentRunner:
         task_description: str,
         **kw,
     ) -> tuple[int, str]:
-        return 0, self.recovery_output
+        self.recovery_calls.append({"workspace_path": workspace_path, "task_description": task_description, **kw})
+        return 0, self._next(self.recovery_output)
 
     async def verify_completion(self, workspace_path: Path, **kw) -> tuple[int, str]:
         return 0, self._next(self.verify_output)
@@ -241,6 +249,7 @@ async def test_workflow_engine_moves_pending_task_to_merge_approval():
 
     assert task.status == TaskStatus.AWAIT_MERGE_APPROVAL
     assert task.plan_text == "1. Do work"
+    assert task.exploration_text == "SUMMARY: Repo entrypoints found."
     assert task.diff_text == "diff"
     assert (
         task.workspace_path
@@ -355,6 +364,56 @@ async def test_workflow_engine_uses_orchestrator_repair_loop_after_review_block(
         title="Implement feature",
         description="",
         status=TaskStatus.PENDING,
+        retry_count=1,
+    )
+    repo = Repo(id=2, name="demo", path="D:/repo", default_branch="main")
+    workspace = Workspace(
+        id=5,
+        repo_id=2,
+        name="Main",
+        kind=WorkspaceKind.MAIN,
+        base_branch="main",
+        branch_name="workspace/main/2",
+        workspace_path=None,
+        is_active=True,
+    )
+    events = FakeEventSink()
+    agent_runner = FakeAgentRunner(
+        explore_output="SUMMARY: Use auth/service.py and tests/test_auth.py.",
+        review_output=[
+            "VERDICT: NEEDS_ATTENTION\nSUMMARY: Fix the edge case.\nDETAILS:\nBlocked.",
+            "VERDICT: PASS\nSUMMARY: Ready for merge.\nDETAILS:\nLooks good.",
+        ],
+        orchestrate_output=[
+            "ACTION: REPAIR\nSUMMARY: Keep the current plan.\nRATIONALE:\nApply a focused fix.",
+        ],
+    )
+    engine = SymphonyWorkflowEngine(
+        FakeWorkspaceManager(),
+        agent_runner,
+        events,
+        FakeSessionFactory(task, repo, workspace),
+    )
+
+    await engine.process_task(1)
+
+    assert task.status == TaskStatus.AWAIT_MERGE_APPROVAL
+    assert any("오케스트레이터 판단 (review): REPAIR" in log for log in events.logs)
+    assert agent_runner.orchestrate_calls[0]["exploration_text"] == "SUMMARY: Use auth/service.py and tests/test_auth.py."
+    run_objects = [obj for obj in engine.session_factory.last_session.objects if isinstance(obj, Run)]
+    assert [run.phase for run in run_objects].count("implement") == 2
+
+
+@pytest.mark.asyncio
+async def test_workflow_engine_uses_replan_path_after_test_block():
+    task = Task(
+        id=1,
+        repo_id=2,
+        workspace_id=5,
+        title="Implement feature",
+        description="",
+        status=TaskStatus.PENDING,
+        retry_count=0,
     )
     repo = Repo(id=2, name="demo", path="D:/repo", default_branch="main")
     workspace = Workspace(
@@ -371,12 +430,17 @@ async def test_workflow_engine_uses_orchestrator_repair_loop_after_review_block(
     engine = SymphonyWorkflowEngine(
         FakeWorkspaceManager(),
         FakeAgentRunner(
-            review_output=[
-                "VERDICT: NEEDS_ATTENTION\nSUMMARY: Fix the edge case.\nDETAILS:\nBlocked.",
-                "VERDICT: PASS\nSUMMARY: Ready for merge.\nDETAILS:\nLooks good.",
+            test_output=[
+                "VERDICT: NEEDS_ATTENTION\nSUMMARY: Test coverage failed.\nDETAILS:\nBlocked.",
+                "VERDICT: PASS\nSUMMARY: Tests passed.\nDETAILS:\npytest ok.",
             ],
             orchestrate_output=[
-                "ACTION: REPAIR\nSUMMARY: Keep the current plan.\nRATIONALE:\nApply a focused fix.",
+                "ACTION: REPLAN\nSUMMARY: Rework the plan.\nRATIONALE:\nThe test failure shows the plan is incomplete.",
+            ],
+            recovery_output="1. Update the plan\n2. Add the missing test",
+            critique_output=[
+                "VERDICT: APPROVED\nSUMMARY: Plan looks good.\nPLAN:\n1. Do work",
+                "VERDICT: APPROVED\nSUMMARY: Recovered plan looks good.\nPLAN:\n1. Update the plan\n2. Add the missing test",
             ],
         ),
         events,
@@ -386,6 +450,120 @@ async def test_workflow_engine_uses_orchestrator_repair_loop_after_review_block(
     await engine.process_task(1)
 
     assert task.status == TaskStatus.AWAIT_MERGE_APPROVAL
-    assert any("오케스트레이터 판단 (review): REPAIR" in log for log in events.logs)
+    assert task.plan_text == "1. Update the plan\n2. Add the missing test"
     run_objects = [obj for obj in engine.session_factory.last_session.objects if isinstance(obj, Run)]
+    assert [run.phase for run in run_objects].count("recover") == 1
     assert [run.phase for run in run_objects].count("implement") == 2
+
+
+@pytest.mark.asyncio
+async def test_workflow_engine_escalates_when_orchestrator_requests_it():
+    task = Task(
+        id=1,
+        repo_id=2,
+        workspace_id=5,
+        title="Implement feature",
+        description="",
+        status=TaskStatus.PENDING,
+        retry_count=0,
+    )
+    repo = Repo(id=2, name="demo", path="D:/repo", default_branch="main")
+    workspace = Workspace(
+        id=5,
+        repo_id=2,
+        name="Main",
+        kind=WorkspaceKind.MAIN,
+        base_branch="main",
+        branch_name="workspace/main/2",
+        workspace_path=None,
+        is_active=True,
+    )
+    events = FakeEventSink()
+    engine = SymphonyWorkflowEngine(
+        FakeWorkspaceManager(),
+        FakeAgentRunner(
+            test_output="VERDICT: NEEDS_ATTENTION\nSUMMARY: Cannot validate automatically.\nDETAILS:\nBlocked.",
+            orchestrate_output="ACTION: ESCALATE\nSUMMARY: Human input required.\nRATIONALE:\nUnsafe to continue automatically.",
+        ),
+        events,
+        FakeSessionFactory(task, repo, workspace),
+    )
+
+    await engine.process_task(1)
+
+    assert task.status == TaskStatus.NEEDS_ATTENTION
+    assert "오케스트레이터가 자동 진행을 중단했습니다" in (task.error_message or "")
+
+
+@pytest.mark.asyncio
+async def test_workflow_engine_rejects_finish_before_verify():
+    task = Task(
+        id=1,
+        repo_id=2,
+        workspace_id=5,
+        title="Implement feature",
+        description="",
+        status=TaskStatus.PENDING,
+    )
+    repo = Repo(id=2, name="demo", path="D:/repo", default_branch="main")
+    workspace = Workspace(
+        id=5,
+        repo_id=2,
+        name="Main",
+        kind=WorkspaceKind.MAIN,
+        base_branch="main",
+        branch_name="workspace/main/2",
+        workspace_path=None,
+        is_active=True,
+    )
+    events = FakeEventSink()
+    engine = SymphonyWorkflowEngine(
+        FakeWorkspaceManager(),
+        FakeAgentRunner(
+            review_output="VERDICT: NEEDS_ATTENTION\nSUMMARY: Review blocked.\nDETAILS:\nBlocked.",
+            orchestrate_output="ACTION: FINISH\nSUMMARY: Stop now.\nRATIONALE:\nThis should only be allowed in verify.",
+        ),
+        events,
+        FakeSessionFactory(task, repo, workspace),
+    )
+
+    await engine.process_task(1)
+
+    assert task.status == TaskStatus.NEEDS_ATTENTION
+    assert "FINISH는 최종 검증 단계에서만 허용됩니다" in (task.error_message or "")
+
+
+@pytest.mark.asyncio
+async def test_workflow_engine_moves_to_needs_attention_when_explore_fails():
+    task = Task(
+        id=1,
+        repo_id=2,
+        workspace_id=5,
+        title="Implement feature",
+        description="",
+        status=TaskStatus.PENDING,
+        retry_count=1,
+    )
+    repo = Repo(id=2, name="demo", path="D:/repo", default_branch="main")
+    workspace = Workspace(
+        id=5,
+        repo_id=2,
+        name="Main",
+        kind=WorkspaceKind.MAIN,
+        base_branch="main",
+        branch_name="workspace/main/2",
+        workspace_path=None,
+        is_active=True,
+    )
+    events = FakeEventSink()
+    engine = SymphonyWorkflowEngine(
+        FakeWorkspaceManager(),
+        FakeAgentRunner(explore_exit_code=1, explore_output="explore failed"),
+        events,
+        FakeSessionFactory(task, repo, workspace),
+    )
+
+    await engine.process_task(1)
+
+    assert task.status == TaskStatus.FAILED
+    assert "탐색 실패" in (task.error_message or "")

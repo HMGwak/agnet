@@ -26,6 +26,9 @@ def _ensure_task_columns(conn):
     if "workspace_id" not in columns:
         conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN workspace_id INTEGER")
 
+    if "exploration_text" not in columns:
+        conn.exec_driver_sql("ALTER TABLE tasks ADD COLUMN exploration_text TEXT")
+
 
 def _ensure_workspaces(conn):
     repo_columns = {

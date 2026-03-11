@@ -188,6 +188,8 @@ class SymphonyWorkflowEngine:
             log_callback=log_cb,
         )
         self._record_run(session, task.id, "explore", 0)
+        task.exploration_text = exploration_text
+        await session.commit()
 
         await self.events.log(task.id, "단계: 계획")
         exit_code, output = await self.codex.generate_plan(
@@ -230,7 +232,7 @@ class SymphonyWorkflowEngine:
             phase_name="plan",
             log_cb=log_cb,
         )
-        if allow_recovery and decision.action in {"CONTINUE", "REPAIR", "REPLAN"}:
+        if allow_recovery and decision.action in {"REPAIR", "REPLAN"}:
             recovered_plan = await self.orchestrator.recover_plan(
                 workspace_path=workspace_path,
                 task_id=task.id,
@@ -318,7 +320,7 @@ class SymphonyWorkflowEngine:
         repair_attempts_remaining = self.MAX_ORCHESTRATOR_REPAIR_ATTEMPTS
         recovery_replans_remaining = self.MAX_RECOVERY_REPLANS
         repair_request = ""
-        exploration_text = ""
+        exploration_text = task.exploration_text or ""
 
         while True:
             await self.events.log(
@@ -562,8 +564,7 @@ class SymphonyWorkflowEngine:
             phase_name=phase_name,
             log_cb=log_cb,
         )
-        repair_actions = {"CONTINUE", "REPAIR"}
-        if decision.action in repair_actions and repair_attempts_remaining > 0:
+        if decision.action == "REPAIR" and repair_attempts_remaining > 0:
             return {
                 "kind": "repair",
                 "repair_request": self._build_repair_request(decision, failure_output),
@@ -604,8 +605,17 @@ class SymphonyWorkflowEngine:
                     f"{critique_output.strip()}"
                 ),
             }
-        if decision.action == "FINISH" and phase_name == "verify":
-            return {"kind": "finish"}
+        if decision.action == "FINISH":
+            if phase_name == "verify":
+                return {"kind": "finish"}
+            return {
+                "kind": "escalate",
+                "message": (
+                    "오케스트레이터가 verify 이전 단계에서 FINISH를 반환했습니다. "
+                    "FINISH는 최종 검증 단계에서만 허용됩니다.\n\n"
+                    f"{decision.raw_output}\n\n{failure_output.strip()}"
+                ),
+            }
         return {
             "kind": "escalate",
             "message": (
@@ -654,8 +664,15 @@ class SymphonyWorkflowEngine:
         return decision
 
     def _build_repair_request(self, decision: OrchestratorDecision, failure_output: str) -> str:
-        parts = [decision.summary.strip(), decision.rationale.strip(), failure_output.strip()]
-        return "\n\n".join(part for part in parts if part)[:4000]
+        summary_parts = [decision.summary.strip(), decision.rationale.strip()]
+        summary_block = "\n\n".join(part for part in summary_parts if part).strip()
+        failure_block = failure_output.strip()
+        parts: list[str] = []
+        if summary_block:
+            parts.append(summary_block[:1800])
+        if failure_block:
+            parts.append(f"Failure context:\n{failure_block[-2000:]}")
+        return "\n\n".join(parts)[:4000]
 
     def _parse_plan_critique(self, output: str) -> dict[str, str]:
         parsed = self._parse_stage_verdict(output, allowed={"APPROVED", "REVISE"})

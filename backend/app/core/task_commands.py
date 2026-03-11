@@ -182,6 +182,7 @@ class TaskCommandService:
 
         task.description = append_follow_up_instructions(task.description, comment)
         task.error_message = None
+        task.exploration_text = None
         task.plan_text = None
         task.diff_text = None
         task.retry_count = 0
@@ -316,6 +317,7 @@ class TaskCommandService:
             "status": task.status.value,
             "branch_name": task.branch_name,
             "workspace_path": task.workspace_path,
+            "exploration_text": getattr(task, "exploration_text", None),
             "plan_text": task.plan_text,
             "diff_text": task.diff_text,
             "error_message": task.error_message,

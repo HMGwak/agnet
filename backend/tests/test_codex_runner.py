@@ -36,6 +36,7 @@ def make_policy():
 def make_prompts():
     return PromptLibrary(
         templates={
+            "explore": SimpleNamespace(substitute=lambda context: f"EXPLORE::{context['task_input']}"),
             "plan": SimpleNamespace(substitute=lambda context: f"PLAN::{context['task_input']}"),
             "critique": SimpleNamespace(
                 substitute=lambda context: f"CRITIQUE::{context['plan_text']}::{context['task_input']}"
@@ -48,6 +49,15 @@ def make_prompts():
             ),
             "review": SimpleNamespace(
                 substitute=lambda context: f"REVIEW::{context['plan_text']}::{context['task_input']}"
+            ),
+            "orchestrate": SimpleNamespace(
+                substitute=lambda context: f"ORCHESTRATE::{context['current_phase']}::{context['task_input']}"
+            ),
+            "recover": SimpleNamespace(
+                substitute=lambda context: f"RECOVER::{context['plan_text']}::{context['task_input']}"
+            ),
+            "verify": SimpleNamespace(
+                substitute=lambda context: f"VERIFY::{context['plan_text']}::{context['task_input']}"
             ),
         }
     )
@@ -69,13 +79,17 @@ def make_project_config(tmp_path: Path) -> CodexProjectConfig:
         "features": {"multi_agent": False},
         "agents": {},
     }
-    for name, multi_agent in (
-        ("intake", False),
-        ("planner", False),
-        ("critic", False),
-        ("executor", True),
-        ("tester", False),
-        ("reviewer", False),
+    for name, multi_agent, model in (
+        ("intake", False, "gpt-5.4"),
+        ("orchestrator", False, "gpt-5.4"),
+        ("explorer", False, "gpt-5.3-codex-spark"),
+        ("planner", False, "gpt-5.4"),
+        ("critic", False, "gpt-5.4"),
+        ("executor", True, "gpt-5-codex"),
+        ("tester", False, "gpt-5-codex"),
+        ("reviewer", False, "gpt-5.4"),
+        ("recovery_planner", False, "gpt-5.4"),
+        ("verifier", False, "gpt-5.4"),
     ):
         instruction_file = instructions_dir / f"{name}.md"
         instruction_file.write_text(f"{name} instructions", encoding="utf-8")
@@ -83,7 +97,7 @@ def make_project_config(tmp_path: Path) -> CodexProjectConfig:
         agent_file.write_text(
             "\n".join(
                 [
-                    'model = "gpt-5.4"',
+                    f'model = "{model}"',
                     'approval_policy = "never"',
                     'sandbox_mode = "workspace-write"',
                     f'model_instructions_file = "../instructions/{name}.md"',
@@ -364,6 +378,7 @@ async def test_run_intake_returns_structured_payload(httpx_mock: HTTPXMock, tmp_
     assert payload["needs_confirmation"] is True
     post_request = httpx_mock.get_requests()[0]
     body = json.loads(post_request.content.decode("utf-8"))
+    assert body["model"] == "gpt-5.4"
     instructions_path = Path(body["config"]["model_instructions_file"])
     assert instructions_path.parent.name == "generated"
     assert instructions_path.name == "intake.md"
@@ -438,12 +453,59 @@ async def test_generate_plan_uses_project_prompt_library(httpx_mock: HTTPXMock, 
 
     post_request = httpx_mock.get_requests()[0]
     body = json.loads(post_request.content.decode("utf-8"))
+    assert body["model"] == "gpt-5.4"
     assert body["prompt"] == "PLAN::Build Tetris"
     instructions_path = Path(body["config"]["model_instructions_file"])
     assert instructions_path.parent.name == "generated"
     assert instructions_path.name == "planner.md"
     assert "planner instructions" in instructions_path.read_text(encoding="utf-8")
     assert body["config"]["features"]["multi_agent"] is False
+
+
+@pytest.mark.asyncio
+async def test_explore_repo_uses_agent_specific_model(httpx_mock: HTTPXMock, tmp_path):
+    runner = CodexRunner(
+        base_url="http://127.0.0.1:8765",
+        model="gpt-5.4",
+        sandbox_mode="workspace-write",
+        approval_policy="never",
+        run_timeout_s=300,
+        prompt_library=make_prompts(),
+        policy=make_policy(),
+        project_config=make_project_config(tmp_path),
+    )
+    events = "\n\n".join(
+        [
+            'data: {"type":"item.completed","item":{"type":"agent_message","text":"ok"}}',
+            'data: {"type":"state","id":"run-9","status":"done"}',
+        ]
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url="http://127.0.0.1:8765/runs",
+        json={"runId": "run-9"},
+        status_code=200,
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url="http://127.0.0.1:8765/runs/run-9/events",
+        text=events,
+        status_code=200,
+    )
+
+    await runner.explore_repo(
+        tmp_path,
+        "Build Tetris",
+        repo_name="demo",
+        workspace_name="Main",
+        branch_name="workspace/main/1",
+        base_branch="main",
+    )
+
+    post_request = httpx_mock.get_requests()[0]
+    body = json.loads(post_request.content.decode("utf-8"))
+    assert body["model"] == "gpt-5.3-codex-spark"
+    assert body["config"]["model"] == "gpt-5.3-codex-spark"
 
 
 def test_sidecar_manager_allowlist_env_does_not_forward_global_auth(tmp_path, monkeypatch):

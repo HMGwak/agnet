@@ -211,6 +211,7 @@ class TaskResponse(BaseModel):
     status: TaskStatus
     branch_name: str | None
     workspace_path: str | None
+    exploration_text: str | None
     plan_text: str | None
     diff_text: str | None
     error_message: str | None
