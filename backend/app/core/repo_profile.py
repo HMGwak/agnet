@@ -63,6 +63,13 @@ def write_repo_profile(repo_path: Path, profile: RepoProfileDraft) -> None:
     agents_path.write_text(updated.rstrip() + "\n", encoding="utf-8")
 
 
+def ensure_repo_profile_file(repo_path: Path) -> None:
+    agents_path = repo_path / "AGENTS.md"
+    if agents_path.exists():
+        return
+    write_repo_profile(repo_path, RepoProfileDraft())
+
+
 def merge_repo_profile(
     existing: RepoProfileDraft | None,
     updates: RepoProfileDraft | None,

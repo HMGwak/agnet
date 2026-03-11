@@ -265,7 +265,23 @@ async def test_analyze_surfaces_structured_contract_errors(tmp_path):
 
 @pytest.mark.asyncio
 async def test_analyze_requests_repo_profile_when_agents_file_is_missing(tmp_path):
-    service = TaskIntakeService(FakeStore(repo_path=str(tmp_path)), FakeCodex({}), make_policy())
+    codex = FakeCodex(
+        {
+            "draft": {
+                "workspace_mode": "new",
+                "workspace_id": None,
+                "new_workspace_name": "analysis-repro",
+                "title": "분석 재현 초안 만들기",
+                "description": "새 저장소 초기 인테이크 문제를 재현하기 위한 초안이다.",
+                "blocked_by_task_id": None,
+                "scheduled_for": None,
+            },
+            "questions": [],
+            "needs_confirmation": True,
+            "notes": ["초안을 생성했습니다."],
+        }
+    )
+    service = TaskIntakeService(FakeStore(repo_path=str(tmp_path)), codex, make_policy())
 
     response = await service.analyze(
         None,
@@ -280,10 +296,12 @@ async def test_analyze_requests_repo_profile_when_agents_file_is_missing(tmp_pat
         "test_commands",
         "deploy_considerations",
     ]
-    assert response.needs_confirmation is False
-    assert "AGENTS.md" in response.notes[0]
-    assert "Repo Profile" in response.notes[0]
+    assert response.draft.title == "분석 재현 초안 만들기"
+    assert response.needs_confirmation is True
+    assert any("AGENTS.md" in note for note in response.notes)
+    assert any("초안 생성은 계속 진행했습니다" in note for note in response.notes)
     assert response.questions[0].startswith("이 저장소는 작업 초안을 만들기 전에")
+    assert codex.calls
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.adapters.sqlite_store import SQLiteStore
+from app.core.repo_profile import ensure_repo_profile_file
 from app.schemas import RepoProfileDraft
 
 
@@ -30,6 +31,7 @@ class RepoService:
 
         if not (repo_path / ".git").exists():
             await self.workspace_manager.ensure_repository(repo_path, default_branch)
+            ensure_repo_profile_file(repo_path)
 
         repo = await self.store.create_repo(db, name, str(repo_path), default_branch)
         try:

@@ -49,13 +49,15 @@ class TaskIntakeService:
             and self._repo_profile_changed(existing_repo_profile, repo_profile)
         ):
             write_repo_profile(repo_path, repo_profile)
+
+        profile_questions: list[str] = []
+        profile_notes: list[str] = []
         if missing_profile_fields:
-            return self._build_repo_profile_response(
-                user_request=body.user_request,
-                current_draft=body.draft,
-                repo_profile=repo_profile,
-                missing_fields=missing_profile_fields,
-            )
+            profile_questions = build_repo_profile_questions(missing_profile_fields)
+            profile_notes = [
+                "이 저장소의 AGENTS.md 에 필수 Repo Profile 항목이 비어 있습니다.",
+                "초안 생성은 계속 진행했습니다. 표시된 Repo Profile 항목을 채우면 이후 분석 정확도가 좋아집니다.",
+            ]
 
         prompt = self._build_prompt(
             repo_name=repo.name,
@@ -75,7 +77,13 @@ class TaskIntakeService:
                 output_schema=self._response_schema(),
             )
             response = TaskIntakeResponse.model_validate(payload)
-            return self._attach_repo_profile(response, repo_profile)
+            return self._attach_repo_profile(
+                response,
+                repo_profile,
+                missing_fields=missing_profile_fields,
+                extra_questions=profile_questions,
+                extra_notes=profile_notes,
+            )
         except (httpx.HTTPError, OSError, RuntimeError):
             pass
 
@@ -86,7 +94,13 @@ class TaskIntakeService:
             conversation=body.conversation,
             current_draft=body.draft,
         )
-        return self._attach_repo_profile(response, repo_profile)
+        return self._attach_repo_profile(
+            response,
+            repo_profile,
+            missing_fields=missing_profile_fields,
+            extra_questions=profile_questions,
+            extra_notes=profile_notes,
+        )
 
     def _response_schema(self) -> dict:
         return {
@@ -405,41 +419,19 @@ class TaskIntakeService:
             notes=notes,
         )
 
-    def _build_repo_profile_response(
-        self,
-        *,
-        user_request: str,
-        current_draft: TaskIntakeDraft | None,
-        repo_profile: RepoProfileDraft | None,
-        missing_fields: list[str],
-    ) -> TaskIntakeResponse:
-        draft = current_draft.model_copy(deep=True) if current_draft is not None else TaskIntakeDraft()
-        title = self._derive_title(user_request)
-        if title and not draft.title:
-            draft.title = title
-        if not draft.description:
-            draft.description = self._build_description(draft.title or title, user_request)
-
-        profile = repo_profile or RepoProfileDraft()
-        return TaskIntakeResponse(
-            draft=draft,
-            questions=build_repo_profile_questions(missing_fields),
-            needs_confirmation=False,
-            notes=[
-                "이 저장소의 AGENTS.md 에 필수 Repo Profile 항목이 비어 있습니다.",
-                "표시된 Repo Profile 항목을 채운 뒤 초안을 다시 업데이트해 주세요.",
-            ],
-            repo_profile=profile,
-            repo_profile_missing_fields=missing_fields,
-        )
-
-    @staticmethod
     def _attach_repo_profile(
+        self,
         response: TaskIntakeResponse,
         repo_profile: RepoProfileDraft | None,
+        *,
+        missing_fields: list[str],
+        extra_questions: list[str],
+        extra_notes: list[str],
     ) -> TaskIntakeResponse:
-        response.repo_profile = repo_profile
-        response.repo_profile_missing_fields = []
+        response.repo_profile = repo_profile or (RepoProfileDraft() if missing_fields else None)
+        response.repo_profile_missing_fields = list(missing_fields)
+        response.questions = self._merge_unique(response.questions, extra_questions)
+        response.notes = self._merge_unique(response.notes, extra_notes)
         return response
 
     @staticmethod
@@ -450,6 +442,14 @@ class TaskIntakeService:
         if existing is None:
             return True
         return existing.model_dump(mode="json") != updated.model_dump(mode="json")
+
+    @staticmethod
+    def _merge_unique(values: list[str], extra: list[str]) -> list[str]:
+        merged: list[str] = []
+        for item in [*values, *extra]:
+            if item and item not in merged:
+                merged.append(item)
+        return merged
 
     @staticmethod
     def _has_any(text: str, *keywords: str) -> bool:

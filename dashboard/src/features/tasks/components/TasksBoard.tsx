@@ -114,15 +114,15 @@ function buildDraftFromFields(
 
 function pickAssistantReply(questions: string[], notes: string[], needsConfirmation: boolean) {
   if (questions.length > 0) {
-    return questions.join("\n");
+    return "추가 확인이 필요합니다. 아래 질문을 확인해 주세요.";
   }
   if (notes.length > 0) {
-    return notes.join("\n");
+    return "초안을 업데이트했습니다. 아래 참고 사항을 확인해 주세요.";
   }
   if (needsConfirmation) {
-    return "Draft updated. Review the filled fields and create the task when ready.";
+    return "초안을 업데이트했습니다. 검토 후 작업을 생성할 수 있습니다.";
   }
-  return "I updated the task draft.";
+  return "태스크 초안을 업데이트했습니다.";
 }
 
 function TasksLoadingState() {

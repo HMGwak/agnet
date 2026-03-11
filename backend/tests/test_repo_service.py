@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -81,6 +82,23 @@ async def test_create_repo_uses_child_folder_when_parent_path_is_selected(tmp_pa
 
     assert repo.path == str(tmp_path / "demo")
     assert (tmp_path / "demo").is_dir()
+
+
+@pytest.mark.asyncio
+async def test_create_repo_bootstraps_agents_profile_for_new_repo(tmp_path):
+    service = RepoService(FakeStore(), workspace_manager=FakeWorkspaceManager())
+
+    repo = await service.create_repo(
+        db=None,
+        name="demo",
+        path=str(tmp_path),
+        default_branch="main",
+        create_if_missing=True,
+    )
+
+    agents_path = Path(repo.path) / "AGENTS.md"
+    assert agents_path.exists()
+    assert "## Repo Profile" in agents_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
